@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-background: #F5F0E8;
+  --color-foreground: #1C1410;
+  --color-accent: #C4501A;
+  --color-accent-hover: #9E3E12;
+  --color-muted-background: #E8E0D0;
+  --color-border: #D4C9B0;
+  --color-body-text: #3D2B1F;
+  --color-muted-text: #7A5C44;
+  --color-accent-muted: #F0E4D8;
+
+  /* Adding surface colors from the spec */
+  --color-surface: #fef9f1;
+  --color-surface-dim: #ded9d2;
+  --color-surface-bright: #fef9f1;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f8f3eb;
+  --color-surface-container: #f2ede5;
+  --color-surface-container-high: #ece8e0;
+  --color-surface-container-highest: #e7e2da;
+  
+  --color-primary: #a23900;
+  --color-primary-container: #c4501a;
+  
+  --spacing-p-8: 2rem;
+  --spacing-p-12: 3rem;
+  --border-width-thin: 2px;
+  --border-width-thick: 4px;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-body-text font-sans antialiased;
+  }
+}
+
+@layer components {
+  .headline-xl {
+    @apply text-[64px] font-[900] leading-[1.1] -tracking-[0.05em] uppercase;
+  }
+  .headline-lg {
+    @apply text-[40px] font-[900] leading-[1.2] -tracking-[0.04em] uppercase;
+  }
+  .label-bold {
+    @apply text-[12px] font-[700] leading-[1] tracking-[0.15em] uppercase;
+  }
+  .section-number {
+    @apply text-[18px] font-[700] text-accent;
+  }
+  
+  .swiss-border {
+    @apply border-foreground border-thick;
+  }
+  
+  .swiss-border-thin {
+    @apply border-foreground border-thin;
+  }
+
+  .grid-bg {
+    background-image: linear-gradient(var(--color-border) 1px, transparent 1px), linear-gradient(90deg, var(--color-border) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  .dot-pattern {
+    background-image: radial-gradient(var(--color-foreground) 1px, transparent 1px);
+    background-size: 24px 24px;
+    opacity: 0.15;
+  }
+}
