@@ -5,6 +5,11 @@ import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
+import * as dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
+
 import { processPdf } from './backend/documentProcessor.js';
 import { vectorStore } from './backend/vectorStore.js';
 import { graphBuilder } from './backend/graphBuilder.js';

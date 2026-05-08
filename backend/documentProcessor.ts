@@ -1,6 +1,4 @@
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const pdf = require('pdf-parse');
+import { PDFParse } from 'pdf-parse';
 
 interface Chunk {
   text: string;
@@ -13,12 +11,14 @@ interface Chunk {
  * Extracts text from PDF and splits into overlapping chunks.
  */
 export async function processPdf(buffer: Buffer, filename: string): Promise<Chunk[]> {
+  let parser: PDFParse | null = null;
   try {
-    const data = await pdf(buffer);
-    const fullText = data.text;
+    // pdf-parse 2.4.5+ uses a class-based approach
+    parser = new PDFParse({ data: buffer });
+    const result = await parser.getText();
+    const fullText = result.text;
     
     // Simple chunking logic (512 tokens approx = 2000 chars)
-    // 64 tokens overlap approx = 250 chars
     const CHUNK_SIZE = 2000; 
     const OVERLAP = 250;
     
@@ -29,24 +29,35 @@ export async function processPdf(buffer: Buffer, filename: string): Promise<Chun
       const end = Math.min(start + CHUNK_SIZE, fullText.length);
       const text = fullText.substring(start, end).trim();
       
-      if (text.length > 50) { // Skip tiny fragments
+      if (text.length > 50) {
         chunks.push({
           text,
           source: filename,
-          page: 1 // pdf-parse combined text doesn't easily map back to pages without more complex parsing
+          page: 1 // We could improve this by using result.pages if needed
         });
       }
 
       start += (CHUNK_SIZE - OVERLAP);
-      
-      // Safety break
       if (start >= fullText.length && chunks.length === 0) break;
-      if (chunks.length > 1000) break; // Limit for demo safety
+      if (chunks.length > 2000) break;
     }
 
     return chunks;
-  } catch (error) {
+  } catch (error: any) {
     console.error('PDF Processing Error:', error);
-    throw new Error('Failed to process PDF document');
+    const errorMessage = error?.message || String(error);
+    
+    if (errorMessage.includes('InvalidPDFException') || errorMessage.includes('FormatError')) {
+      throw new Error(`The file "${filename}" is corrupted or not a valid PDF.`);
+    }
+    if (errorMessage.includes('AbortException')) {
+      throw new Error('Processing was aborted. The PDF may be too complex.');
+    }
+    
+    throw new Error(`Failed to process PDF: ${errorMessage}`);
+  } finally {
+    if (parser) {
+      await parser.destroy().catch(() => {});
+    }
   }
 }

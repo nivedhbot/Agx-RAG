@@ -40,12 +40,23 @@ export class VectorStore {
     const extractor = await this.getExtractor();
     
     console.log(`Generating embeddings for ${newChunks.length} chunks...`);
-    for (const chunk of newChunks) {
-      // Generate embedding
-      const output = await extractor(chunk.text, { pooling: 'mean', normalize: true });
-      chunk.embedding = Array.from(output.data);
-      chunk.id = Math.random().toString(36).substring(7);
-      this.chunks.push(chunk);
+    
+    // Batch process embeddings for significant speedup
+    const texts = newChunks.map(c => c.text);
+    const output = await extractor(texts, { pooling: 'mean', normalize: true });
+    
+    // output.data is a Float32Array containing all embeddings
+    // output.dims is [batchSize, embeddingSize]
+    const batchSize = output.dims[0];
+    const embeddingSize = output.dims[1];
+    
+    for (let i = 0; i < batchSize; i++) {
+      const startIndex = i * embeddingSize;
+      const embedding = Array.from(output.data.slice(startIndex, startIndex + embeddingSize));
+      
+      newChunks[i].embedding = embedding;
+      newChunks[i].id = Math.random().toString(36).substring(7);
+      this.chunks.push(newChunks[i]);
     }
     
     await this.save();
