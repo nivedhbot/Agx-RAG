@@ -8,6 +8,8 @@ import { createServer as createViteServer } from 'vite';
 import { processPdf } from './backend/documentProcessor.js';
 import { vectorStore } from './backend/vectorStore.js';
 import { graphBuilder } from './backend/graphBuilder.js';
+import { ragPipeline } from './backend/ragPipeline.js';
+import { llmGenerator } from './backend/llmGenerator.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,7 +33,16 @@ async function startServer() {
 
   // TASK 1: Health Check
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', service: 'AGX-RAG Backend (Node.js)' });
+    res.json({ 
+      status: 'ok', 
+      service: 'AGX-RAG Multi-Agent System',
+      modules: {
+        vector: 'Loaded',
+        graph: 'Active',
+        reranker: 'Hybrid-F(d)',
+        llm: process.env.OPENAI_API_KEY ? 'OpenAI' : (process.env.GEMINI_API_KEY ? 'Gemini' : 'Mock')
+      }
+    });
   });
 
   // TASK 1: Upload (Task 2, 3, 4 integration)
@@ -44,29 +55,19 @@ async function startServer() {
       console.log(`Processing file: ${req.file.originalname}`);
       const rawChunks = await processPdf(req.file.buffer, req.file.originalname);
       
-      // Add to vector store (TASK 3) - this adds IDs and embeddings
+      // Add to vector store (TASK 3)
       const processedChunks = await vectorStore.addChunks(rawChunks);
       
       // Update graph (TASK 4)
       await graphBuilder.updateGraph(processedChunks);
 
-      const docId = Math.random().toString(36).substring(7);
-      const newDoc = {
-        id: docId,
-        name: req.file.originalname,
-        size: `${(req.file.size / 1024).toFixed(1)} KB`,
-        chunks: rawChunks.length,
-        status: 'Processed',
-        date: new Date().toISOString().split('T')[0]
-      };
-
-      // We should ideally persist documents metadata too, but for now we'll derive it or keep it simple
-      // For this demo, we'll keep documents in memory but they'll be empty on reload 
-      // unless we store them. Let's just return success.
-
       res.json({ 
         message: 'Upload successful', 
-        document: newDoc,
+        document: {
+          name: req.file.originalname,
+          chunks: rawChunks.length,
+          status: 'Processed'
+        },
         chunkCount: rawChunks.length 
       });
     } catch (error: any) {
@@ -75,7 +76,7 @@ async function startServer() {
     }
   });
 
-  // TASK 1: Query (Placeholder for RAG)
+  // TASK 5 & 6: Query (Hybrid Search + LLM Generation)
   app.post('/api/query', async (req, res) => {
     const { query } = req.body;
     if (!query) return res.status(400).json({ error: 'Query is required' });
@@ -83,63 +84,33 @@ async function startServer() {
     console.log(`Processing query: ${query}`);
     const startTime = Date.now();
 
-    // 1. Vector Search (TASK 3)
-    const vectorResults = await vectorStore.search(query, 10);
-    
-    // 2. Graph Re-ranking/Bridging (TASK 4)
-    const graphScores = graphBuilder.getGraphScores(vectorResults, query);
-    const bridgingChunkIds = graphBuilder.getBridgingChunks(query);
-    
-    // Combine scores
-    const finalResults = vectorResults.map((chunk, i) => ({
-      ...chunk,
-      graphScore: graphScores[i],
-      isBridging: bridgingChunkIds.includes(chunk.id!),
-      finalScore: chunk.score + (graphScores[i] * 0.5) // Weighted combining
-    })).sort((a, b) => b.finalScore - a.finalScore);
+    try {
+      // 1. Hybrid Pipeline (TASK 5)
+      const reRankedResults = await ragPipeline.process(query, 20);
+      
+      // 2. LLM Generation (TASK 6)
+      // We pass the top 5 chunks for context
+      const generation = await llmGenerator.generate(query, reRankedResults.slice(0, 5));
 
-    // 3. Gemini Generation (if API key available)
-    let answer = `Analysis for "${query}": Based on the retrieved chunks from ${[...new Set(finalResults.map(r => r.source))].join(', ')}, the architectural patterns suggest a decentralized graph structure. (Retrieval successful, LLM generation skipped as API key check pending)`;
+      const latency = `${Date.now() - startTime}ms`;
 
-    if (process.env.GEMINI_API_KEY) {
-      try {
-        const { GoogleGenerativeAI } = await import('@google/generative-ai');
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-
-        const context = finalResults.slice(0, 5).map(r => `SOURCE: ${r.source}\nTEXT: ${r.text}`).join('\n\n---\n\n');
-        const prompt = `You are an expert Graph-Augmented RAG system called AGX-RAG. 
-          Use the following context extracted from documents to answer the user query.
-          If the context doesn't contain the answer, say "I don't have enough information in the provided context."
-          
-          CONTEXT:
-          ${context}
-          
-          QUERY: ${query}
-          
-          ANSWER:`;
-
-        const result = await model.generateContent(prompt);
-        answer = result.response.text();
-      } catch (geminiError) {
-        console.error('Gemini Generation Error:', geminiError);
-        answer = `Retrieval was successful, but the AI generation failed: ${geminiError instanceof Error ? geminiError.message : String(geminiError)}`;
-      }
+      res.json({
+        answer: generation.answer,
+        confidence: generation.confidence,
+        latency,
+        sources: generation.sources,
+        reasoningPath: generation.reasoningPath,
+        topChunks: reRankedResults.slice(0, 5).map(r => ({
+          text: r.text,
+          source: r.source,
+          score: r.finalScore,
+          isContradiction: r.contradictionPenalty > 0
+        }))
+      });
+    } catch (error: any) {
+      console.error('Query error:', error);
+      res.status(500).json({ error: error.message });
     }
-
-    const latency = `${Date.now() - startTime}ms`;
-
-    res.json({
-      answer,
-      confidence: 0.87,
-      latency,
-      sources: [...new Set(finalResults.map(r => r.source))],
-      topChunks: finalResults.slice(0, 5).map(r => ({
-        text: r.text,
-        source: r.source,
-        score: r.finalScore
-      }))
-    });
   });
 
   // TASK 1: Get Documents
