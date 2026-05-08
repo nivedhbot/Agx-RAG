@@ -30,12 +30,16 @@ export const SwissButton = ({
   children, 
   variant = 'primary', 
   className = '', 
-  onClick 
+  onClick,
+  disabled = false,
+  type = 'button'
 }: { 
   children: React.ReactNode; 
   variant?: 'primary' | 'secondary' | 'accent' | 'ghost';
   className?: string;
   onClick?: () => void;
+  disabled?: boolean;
+  type?: 'button' | 'submit' | 'reset';
 }) => {
   const variants = {
     primary: 'bg-foreground text-background hover:bg-accent hover:text-white',
@@ -47,7 +51,9 @@ export const SwissButton = ({
   return (
     <button 
       onClick={onClick}
-      className={`px-8 py-3 label-bold transition-all duration-150 active:scale-95 ${variants[variant]} ${className}`}
+      disabled={disabled}
+      type={type}
+      className={`px-8 py-3 label-bold transition-all duration-150 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${className}`}
     >
       {children}
     </button>

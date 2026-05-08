@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Menu, 
   Send, 
@@ -10,9 +10,68 @@ import {
   ChevronRight
 } from './SwissUI';
 
+interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+  confidence?: number;
+  latency?: string;
+  sources?: string[];
+  isLoading?: boolean;
+}
+
 export default function ChatDashboard() {
   const [query, setQuery] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [documents, setDocuments] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch('/api/documents')
+      .then(res => res.json())
+      .then(setDocuments);
+  }, []);
+
+  const handleQuery = async () => {
+    if (!query.trim()) return;
+
+    const userMsg: Message = { role: 'user', content: query };
+    const assistantMsg: Message = { role: 'assistant', content: '', isLoading: true };
+    
+    setMessages(prev => [...prev, userMsg, assistantMsg]);
+    setQuery('');
+
+    try {
+      const res = await fetch('/api/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: userMsg.content }),
+      });
+      
+      const data = await res.json();
+      
+      setMessages(prev => {
+        const last = prev[prev.length - 1];
+        return [...prev.slice(0, -1), { 
+          ...last, 
+          content: data.answer, 
+          confidence: data.confidence,
+          latency: data.latency,
+          sources: data.sources,
+          isLoading: false 
+        }];
+      });
+    } catch (err) {
+      console.error('Query failed:', err);
+      setMessages(prev => {
+        const last = prev[prev.length - 1];
+        return [...prev.slice(0, -1), { 
+          ...last, 
+          content: "System error: Failed to retrieve graph-augmented response.", 
+          isLoading: false 
+        }];
+      });
+    }
+  };
 
   return (
     <div className="flex h-[calc(100vh-80px)] overflow-hidden relative">
@@ -49,25 +108,24 @@ export default function ChatDashboard() {
             </div>
             
             <div className="space-y-0 border-t-thin border-foreground overflow-y-auto max-h-[300px]">
-              {[
-                { name: 'arch_patterns_v2.pdf', pg: 42, chunks: 156 },
-                { name: 'system_spec_final.pdf', pg: 12, chunks: 88 },
-                { name: 'event_sourcing_deep.pdf', pg: 85, chunks: 412 },
-              ].map((doc, i) => (
+              {documents.map((doc, i) => (
                 <div key={i} className="border-b-thin border-foreground p-3 hover:bg-accent-muted transition-colors cursor-pointer group">
                   <p className="label-bold truncate">{doc.name}</p>
                   <div className="flex justify-between mt-1 opacity-60 text-[10px] font-bold">
-                    <span>PG: {doc.pg}</span>
                     <span>CHUNKS: {doc.chunks}</span>
+                    <span>ID: {doc.id}</span>
                   </div>
                 </div>
               ))}
+              {documents.length === 0 && (
+                <div className="p-4 text-center label-bold text-[10px] opacity-40">EMPTY CORE</div>
+              )}
             </div>
           </section>
 
           <footer className="mt-auto border-t-thick border-foreground flex -mx-6 -mb-6 bg-muted-background">
-            <div className="flex-1 border-r-thin border-foreground p-3 label-bold text-[10px]">DOCS: 3</div>
-            <div className="flex-1 p-3 label-bold text-[10px]">QUERIES: 12</div>
+            <div className="flex-1 border-r-thin border-foreground p-3 label-bold text-[10px]">DOCS: {documents.length}</div>
+            <div className="flex-1 p-3 label-bold text-[10px]">QUERIES: {messages.filter(m => m.role === 'user').length}</div>
           </footer>
         </div>
       </aside>
@@ -96,42 +154,42 @@ export default function ChatDashboard() {
         </header>
 
         <div className="flex-1 overflow-y-auto p-4 md:p-12 space-y-8 md:space-y-12">
-          {/* Messages */}
-          <div className="flex justify-end">
-            <div className="w-full sm:max-w-[80%] bg-accent p-4 md:p-6 border-thick border-foreground">
-              <p className="text-white font-medium text-sm md:text-base">What are the key architectural patterns discussed in this paper?</p>
+          {messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full opacity-20 space-y-4">
+              <Cpu size={80} />
+              <p className="headline-lg text-2xl uppercase tracking-widest">Awaiting Input_</p>
             </div>
-          </div>
+          )}
 
-          <div className="flex justify-start">
-            <div className="w-full sm:max-w-[90%] bg-muted-background p-4 md:p-6 border-thick border-foreground space-y-4">
-              <p className="text-foreground font-medium text-sm md:text-base">
-                The primary architectural patterns identified include Microservices, Event Sourcing, and Command Query Responsibility Segregation (CQRS). The paper emphasizes the decoupling of data storage from business logic through asynchronous event streams, ensuring high horizontal scalability.
-              </p>
-              <div className="flex flex-wrap gap-2 pt-4">
-                <span className="swiss-border-thin px-2 md:px-3 py-1 label-bold text-[8px] md:text-[10px] bg-accent text-white">87% CONF.</span>
-                <span className="swiss-border-thin px-2 md:px-3 py-1 label-bold text-[8px] md:text-[10px]">1240MS</span>
-                <span className="swiss-border-thin px-2 md:px-3 py-1 label-bold text-[8px] md:text-[10px]">4 SOURCES</span>
+          {messages.map((msg, i) => (
+            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`w-full ${msg.role === 'user' ? 'sm:max-w-[80%] bg-accent' : 'sm:max-w-[90%] bg-muted-background'} p-4 md:p-6 border-thick border-foreground space-y-4`}>
+                {msg.isLoading ? (
+                  <div className="flex items-center gap-6">
+                    <div className="flex gap-1 items-end h-8">
+                      <div className="w-2 bg-foreground h-full animate-pulse" style={{ animationDelay: '0ms' }} />
+                      <div className="w-2 bg-foreground h-1/2 animate-pulse" style={{ animationDelay: '150ms' }} />
+                      <div className="w-2 bg-foreground h-3/4 animate-pulse" style={{ animationDelay: '300ms' }} />
+                    </div>
+                    <span className="headline-lg text-[14px] md:text-[16px] animate-pulse">Processing_</span>
+                  </div>
+                ) : (
+                  <>
+                    <p className={`${msg.role === 'user' ? 'text-white' : 'text-foreground'} font-medium text-sm md:text-base whitespace-pre-wrap`}>
+                      {msg.content}
+                    </p>
+                    {msg.role === 'assistant' && msg.confidence && (
+                      <div className="flex flex-wrap gap-2 pt-4">
+                        <span className="swiss-border-thin px-2 md:px-3 py-1 label-bold text-[8px] md:text-[10px] bg-accent text-white">{(msg.confidence * 100).toFixed(0)}% CONF.</span>
+                        <span className="swiss-border-thin px-2 md:px-3 py-1 label-bold text-[8px] md:text-[10px]">{msg.latency}</span>
+                        <span className="swiss-border-thin px-2 md:px-3 py-1 label-bold text-[8px] md:text-[10px]">{msg.sources?.length} SOURCES</span>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
-          </div>
-
-          <div className="flex justify-end">
-            <div className="w-full sm:max-w-[80%] bg-accent p-4 md:p-6 border-thick border-foreground">
-              <p className="text-white font-medium text-sm md:text-base">How does event sourcing compare to traditional CRUD?</p>
-            </div>
-          </div>
-
-          <div className="flex justify-start">
-            <div className="w-full sm:max-w-[90%] bg-muted-background p-4 md:p-6 border-thick border-foreground flex items-center gap-6">
-              <div className="flex gap-1 items-end h-8">
-                <div className="w-2 bg-foreground h-full animate-pulse" style={{ animationDelay: '0ms' }} />
-                <div className="w-2 bg-foreground h-1/2 animate-pulse" style={{ animationDelay: '150ms' }} />
-                <div className="w-2 bg-foreground h-3/4 animate-pulse" style={{ animationDelay: '300ms' }} />
-              </div>
-              <span className="headline-lg text-[14px] md:text-[16px] animate-pulse">Processing_</span>
-            </div>
-          </div>
+          ))}
         </div>
 
         <footer className="p-4 md:p-8 bg-background border-t-thick border-foreground">
@@ -141,8 +199,17 @@ export default function ChatDashboard() {
               placeholder="ENTER YOUR QUERY..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleQuery();
+                }
+              }}
             />
-            <button className="w-24 md:w-32 bg-accent hover:bg-foreground transition-all duration-150 flex flex-col items-center justify-center border-l-thick border-foreground text-white group">
+            <button 
+              onClick={handleQuery}
+              className="w-24 md:w-32 bg-accent hover:bg-foreground transition-all duration-150 flex flex-col items-center justify-center border-l-thick border-foreground text-white group"
+            >
               <Send size={24} className="md:w-8 md:h-8 group-active:translate-x-1 group-active:-translate-y-1 transition-transform" />
               <span className="label-bold text-[10px] md:text-[12px] mt-1">SUBMIT</span>
             </button>
