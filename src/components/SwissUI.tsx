@@ -21,7 +21,10 @@ import {
   Shield,
   Zap,
   ArrowLeft,
-  X
+  X,
+  Terminal,
+  Lock,
+  Key
 } from 'lucide-react';
 
 // Common UI Components
@@ -101,5 +104,8 @@ export {
   Shield,
   Zap,
   ArrowLeft,
-  X
+  X,
+  Terminal,
+  Lock,
+  Key
 };

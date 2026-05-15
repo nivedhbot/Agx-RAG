@@ -64,4 +64,3 @@ npm run dev
 - **Backend**: Node.js/Express, Multer (memory-storage).
 - **AI/ML**: OpenAI SDK, @xenova/transformers, Graphology, Compromise.js.
 - **Database**: Local Filesystem (vectorstore/ for persistence).
-.

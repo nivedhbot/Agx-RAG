@@ -7,7 +7,8 @@ import {
   Cloud, 
   LayoutDashboard,
   SwissButton,
-  ChevronRight
+  ChevronRight,
+  Terminal
 } from './SwissUI';
 
 interface Message {
@@ -16,25 +17,22 @@ interface Message {
   confidence?: number;
   latency?: string;
   sources?: string[];
+  reasoningPath?: string;
+  topChunks?: any[];
   isLoading?: boolean;
 }
 
-export default function ChatDashboard() {
+export default function ChatDashboard({ onShowAnalysis }: { 
+  onShowAnalysis: (data: any) => void
+}) {
   const [query, setQuery] = useState('');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [documents, setDocuments] = useState<any[]>([]);
-
-  useEffect(() => {
-    fetch('/api/documents')
-      .then(res => res.json())
-      .then(setDocuments);
-  }, []);
 
   const handleQuery = async () => {
     if (!query.trim()) return;
 
-    const userMsg: Message = { role: 'user', content: query };
+    const currentQuery = query;
+    const userMsg: Message = { role: 'user', content: currentQuery };
     const assistantMsg: Message = { role: 'assistant', content: '', isLoading: true };
     
     setMessages(prev => [...prev, userMsg, assistantMsg]);
@@ -44,7 +42,7 @@ export default function ChatDashboard() {
       const res = await fetch('/api/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: userMsg.content }),
+        body: JSON.stringify({ query: currentQuery }),
       });
       
       const data = await res.json();
@@ -57,8 +55,11 @@ export default function ChatDashboard() {
           confidence: data.confidence,
           latency: data.latency,
           sources: data.sources,
-          isLoading: false 
-        }];
+          reasoningPath: data.reasoningPath,
+          topChunks: data.topChunks,
+          isLoading: false,
+          query: currentQuery // Store original query for analysis
+        } as any];
       });
     } catch (err) {
       console.error('Query failed:', err);
@@ -74,115 +75,65 @@ export default function ChatDashboard() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-80px)] overflow-hidden relative">
-      {/* Side Sidebar: Corpus Index */}
-      <aside className={`
-        fixed inset-y-0 left-0 z-40 w-64 bg-muted-background border-r-thick border-foreground transition-transform duration-300 lg:relative lg:translate-x-0
-        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-      `}>
-        <div className="absolute inset-0 dot-pattern pointer-events-none" />
-        <div className="p-6 relative z-10 h-full flex flex-col">
-          <div className="mb-8 flex justify-between items-start">
-            <div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-6 bg-accent" />
-                <h1 className="headline-lg text-[24px] tracking-tight">AGX-RAG</h1>
-              </div>
-              <p className="label-bold text-[10px] tracking-widest text-muted-text mt-1">GRAPH-AUGMENTED RETRIEVAL</p>
-            </div>
-            <button className="lg:hidden p-1 bg-foreground text-background" onClick={() => setIsSidebarOpen(false)}>
-              <ChevronRight className="rotate-180" size={20} />
-            </button>
-          </div>
-
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-3 h-3 bg-foreground" />
-            <span className="label-bold">ONLINE</span>
-          </div>
-
-          <section className="space-y-4 flex-1">
-            <h2 className="section-number text-sm">00. CORPUS</h2>
-            <div className="border-thin border-dashed border-foreground p-6 flex flex-col items-center justify-center gap-2 hover:bg-white/30 transition-colors cursor-pointer">
-              <PlusSquare size={24} />
-              <span className="label-bold text-[10px]">UPLOAD PDF</span>
-            </div>
-            
-            <div className="space-y-0 border-t-thin border-foreground overflow-y-auto max-h-[300px]">
-              {documents.map((doc, i) => (
-                <div key={i} className="border-b-thin border-foreground p-3 hover:bg-accent-muted transition-colors cursor-pointer group">
-                  <p className="label-bold truncate">{doc.name}</p>
-                  <div className="flex justify-between mt-1 opacity-60 text-[10px] font-bold">
-                    <span>CHUNKS: {doc.chunks}</span>
-                    <span>ID: {doc.id}</span>
-                  </div>
-                </div>
-              ))}
-              {documents.length === 0 && (
-                <div className="p-4 text-center label-bold text-[10px] opacity-40">EMPTY CORE</div>
-              )}
-            </div>
-          </section>
-
-          <footer className="mt-auto border-t-thick border-foreground flex -mx-6 -mb-6 bg-muted-background">
-            <div className="flex-1 border-r-thin border-foreground p-3 label-bold text-[10px]">DOCS: {documents.length}</div>
-            <div className="flex-1 p-3 label-bold text-[10px]">QUERIES: {messages.filter(m => m.role === 'user').length}</div>
-          </footer>
-        </div>
-      </aside>
-
-      {/* Mobile Sidebar Overlay */}
-      {isSidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-foreground/50 z-30 lg:hidden"
-          onClick={() => setIsSidebarOpen(false)}
-        />
-      )}
-
+    <div className="flex h-full animate-in fade-in duration-500 overflow-hidden relative border-thick border-foreground bg-surface shadow-[12px_12px_0px_#00000010]">
       {/* Main Chat Panel */}
-      <section className="flex-1 flex flex-col bg-background relative border-r-thick border-foreground w-full">
-        <header className="h-16 border-b-thick border-foreground flex items-center px-4 md:px-6 gap-4 bg-surface">
-          <button 
-            className="lg:hidden w-10 h-10 bg-accent swiss-border flex items-center justify-center text-white"
-            onClick={() => setIsSidebarOpen(true)}
-          >
-            <Menu size={20} />
-          </button>
-          <button className="hidden lg:flex w-10 h-10 bg-accent swiss-border items-center justify-center text-white">
-            <Menu size={20} />
-          </button>
-          <h2 className="headline-lg text-[18px] md:text-[20px] tracking-tight">System Inquiry_</h2>
+      <section className="flex-1 flex flex-col bg-background relative border-r-thick border-foreground">
+        <header className="h-14 border-b-thick border-foreground flex items-center px-6 gap-4 bg-muted-background">
+          <div className="w-3 h-3 bg-accent animate-pulse" />
+          <h2 className="label-bold text-xs uppercase tracking-widest">Inquiry_Buffer_Live</h2>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-12 space-y-8 md:space-y-12">
+        <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-8 bg-surface/50">
           {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full opacity-20 space-y-4">
-              <Cpu size={80} />
-              <p className="headline-lg text-2xl uppercase tracking-widest">Awaiting Input_</p>
+            <div className="flex flex-col items-center justify-center h-full opacity-10 space-y-6">
+              <Cpu size={120} strokeWidth={1} />
+              <div className="text-center">
+                <p className="headline-lg text-3xl uppercase tracking-[0.2em] mb-2">Awaiting_Instructions</p>
+                <p className="label-bold text-[10px] tracking-widest">INPUT QUERY TO TRIGGER GRAPH TRAVERSAL</p>
+              </div>
             </div>
           )}
 
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`w-full ${msg.role === 'user' ? 'sm:max-w-[80%] bg-accent' : 'sm:max-w-[90%] bg-muted-background'} p-4 md:p-6 border-thick border-foreground space-y-4`}>
+              <div className={`w-full ${msg.role === 'user' ? 'sm:max-w-[85%] bg-accent' : 'sm:max-w-[95%] bg-surface border-thick border-foreground shadow-sm'} p-6 md:p-8 space-y-4`}>
                 {msg.isLoading ? (
                   <div className="flex items-center gap-6">
-                    <div className="flex gap-1 items-end h-8">
-                      <div className="w-2 bg-foreground h-full animate-pulse" style={{ animationDelay: '0ms' }} />
-                      <div className="w-2 bg-foreground h-1/2 animate-pulse" style={{ animationDelay: '150ms' }} />
-                      <div className="w-2 bg-foreground h-3/4 animate-pulse" style={{ animationDelay: '300ms' }} />
+                    <div className="flex gap-1.5 items-end h-10">
+                      <div className="w-2.5 bg-foreground h-full animate-pulse" style={{ animationDelay: '0ms' }} />
+                      <div className="w-2.5 bg-foreground h-2/3 animate-pulse" style={{ animationDelay: '150ms' }} />
+                      <div className="w-2.5 bg-foreground h-1/2 animate-pulse" style={{ animationDelay: '300ms' }} />
                     </div>
-                    <span className="headline-lg text-[14px] md:text-[16px] animate-pulse">Processing_</span>
+                    <span className="headline-lg text-2xl animate-pulse tracking-widest">PROCESS_</span>
                   </div>
                 ) : (
                   <>
-                    <p className={`${msg.role === 'user' ? 'text-white' : 'text-foreground'} font-medium text-sm md:text-base whitespace-pre-wrap`}>
+                    <p className={`${msg.role === 'user' ? 'text-white' : 'text-foreground'} font-medium text-sm md:text-lg leading-relaxed whitespace-pre-wrap uppercase tracking-tight`}>
                       {msg.content}
                     </p>
                     {msg.role === 'assistant' && msg.confidence && (
-                      <div className="flex flex-wrap gap-2 pt-4">
-                        <span className="swiss-border-thin px-2 md:px-3 py-1 label-bold text-[8px] md:text-[10px] bg-accent text-white">{(msg.confidence * 100).toFixed(0)}% CONF.</span>
-                        <span className="swiss-border-thin px-2 md:px-3 py-1 label-bold text-[8px] md:text-[10px]">{msg.latency}</span>
-                        <span className="swiss-border-thin px-2 md:px-3 py-1 label-bold text-[8px] md:text-[10px]">{msg.sources?.length} SOURCES</span>
+                      <div className="flex flex-col gap-6 pt-6 border-t border-foreground/5">
+                        <div className="flex flex-wrap gap-3">
+                          <div className="flex flex-col">
+                            <span className="label-bold text-[8px] opacity-40 mb-1">ACCURACY</span>
+                            <span className="px-3 py-1 bg-accent text-white label-bold text-[10px]">{(msg.confidence * 100).toFixed(0)}%</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="label-bold text-[8px] opacity-40 mb-1">LATENCY</span>
+                            <span className="px-3 py-1 bg-foreground text-background label-bold text-[10px]">{msg.latency}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="label-bold text-[8px] opacity-40 mb-1">EVIDENCE</span>
+                            <span className="px-3 py-1 bg-foreground text-background label-bold text-[10px]">{msg.sources?.length} NODES</span>
+                          </div>
+                        </div>
+                        <SwissButton 
+                          variant="secondary" 
+                          className="w-full text-[10px] py-4 tracking-[0.2em] uppercase font-black bg-foreground text-background hover:bg-accent hover:text-white"
+                          onClick={() => onShowAnalysis(msg)}
+                        >
+                          DECONSTRUCT_SYNTHESIS_
+                        </SwissButton>
                       </div>
                     )}
                   </>
@@ -192,11 +143,11 @@ export default function ChatDashboard() {
           ))}
         </div>
 
-        <footer className="p-4 md:p-8 bg-background border-t-thick border-foreground">
-          <div className="relative swiss-border flex bg-surface-container-lowest">
+        <footer className="p-6 md:p-8 bg-muted-background border-t-thick border-foreground">
+          <div className="relative flex bg-surface border-thick border-foreground focus-within:ring-2 focus-within:ring-accent transition-all">
             <textarea 
-              className="flex-1 p-3 md:p-4 bg-transparent focus:ring-0 border-none font-medium text-foreground text-sm md:text-base placeholder:text-muted-text/30 resize-none h-20 md:h-24" 
-              placeholder="ENTER YOUR QUERY..."
+              className="flex-1 p-5 bg-transparent focus:ring-0 border-none font-bold text-foreground text-sm placeholder:text-muted-text/30 resize-none h-24 uppercase" 
+              placeholder="ENTER_QUERY_FOR_REASONING_ENGINE..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -208,69 +159,68 @@ export default function ChatDashboard() {
             />
             <button 
               onClick={handleQuery}
-              className="w-24 md:w-32 bg-accent hover:bg-foreground transition-all duration-150 flex flex-col items-center justify-center border-l-thick border-foreground text-white group"
+              className="w-28 md:w-36 bg-accent hover:bg-foreground transition-all duration-300 flex flex-col items-center justify-center border-l-thick border-foreground text-white group"
             >
-              <Send size={24} className="md:w-8 md:h-8 group-active:translate-x-1 group-active:-translate-y-1 transition-transform" />
-              <span className="label-bold text-[10px] md:text-[12px] mt-1">SUBMIT</span>
+              <Send size={28} className="group-active:scale-90 transition-transform" />
+              <span className="label-bold text-[10px] mt-2 tracking-widest">EXECUTE</span>
             </button>
           </div>
         </footer>
       </section>
 
       {/* Right Graph Panel */}
-      <aside className="w-[400px] hidden xl:flex flex-col bg-surface overflow-hidden">
-        <div className="flex border-b-thick border-foreground">
-          <button className="flex-1 bg-foreground text-background p-4 label-bold text-[14px]">
-            02. GRAPH
+      <aside className="w-[450px] hidden xl:flex flex-col bg-surface overflow-hidden">
+        <div className="flex border-b-thick border-foreground bg-foreground">
+          <button className="flex-1 text-background p-5 label-bold text-[12px] tracking-[0.2em] relative overflow-hidden group">
+            <span className="relative z-10">02. DYNAMIC_MAP</span>
+            <div className="absolute inset-0 bg-accent translate-y-full group-hover:translate-y-0 transition-transform duration-300 opacity-20" />
           </button>
-          <button className="flex-1 bg-surface-variant text-on-surface-variant p-4 label-bold text-[14px] border-l-thick border-foreground">
-            03. EVIDENCE
+          <button className="flex-1 text-background/40 hover:text-background p-5 label-bold text-[12px] tracking-[0.2em] border-l border-white/10 transition-colors uppercase">
+            03. LOGS
           </button>
         </div>
 
-        <div className="flex-1 relative bg-background overflow-hidden p-8">
+        <div className="flex-1 relative bg-surface overflow-hidden p-10 flex flex-col">
           <div className="absolute inset-0 dot-pattern opacity-10" />
           
-          {/* Mock Graph */}
-          <div className="relative w-full h-[400px] flex items-center justify-center">
-            {/* SVG Lines */}
-            <svg className="absolute inset-0 w-full h-full">
-              <path d="M 200,100 L 100,200 L 200,300 L 300,200 Z" fill="none" stroke="currentColor" strokeWidth="2" className="text-foreground" />
-              <line x1="200" y1="100" x2="200" y2="300" stroke="currentColor" strokeWidth="2" className="text-foreground" />
-            </svg>
-            
-            <div className="absolute top-[80px] px-4 py-2 bg-accent border-thick border-foreground label-bold text-[10px] text-white">MICROSERVICES</div>
-            <div className="absolute left-[20px] top-[180px] px-4 py-2 bg-muted-background border-thin border-foreground label-bold text-[10px]">EVENT SOURCING</div>
-            <div className="absolute right-[20px] top-[180px] px-4 py-2 bg-muted-background border-thin border-foreground label-bold text-[10px]">CQRS</div>
-            <div className="absolute bottom-[80px] px-4 py-2 bg-border border-thin border-foreground label-bold text-[10px]">DATABASE</div>
+          <div className="relative z-10 flex-grow flex flex-col justify-center">
+            {/* Mock Graph Visualization */}
+            <div className="w-full aspect-square border border-foreground/10 flex items-center justify-center relative">
+              <div className="absolute inset-4 border border-accent/20 rounded-full animate-spin-slow opacity-20" />
+              <div className="absolute inset-10 border border-foreground/20 rounded-full animate-spin-slow-reverse opacity-20" />
+              
+              <div className="relative z-20 flex flex-col gap-8 items-center cursor-crosshair">
+                <div className="px-4 py-2 border-thick border-foreground bg-accent text-white label-bold text-[9px] tracking-widest shadow-lg">PRIMARY_NODE</div>
+                <div className="flex gap-12">
+                  <div className="px-4 py-2 border border-foreground/20 bg-background label-bold text-[8px] opacity-40 shadow-sm">L_VECTOR</div>
+                  <div className="px-4 py-2 border border-foreground/20 bg-background label-bold text-[8px] opacity-40 shadow-sm">R_VECTOR</div>
+                </div>
+                <div className="px-4 py-2 border border-foreground/50 bg-background label-bold text-[9px] tracking-widest shadow-md">CONTEXTUAL_ANCHOR</div>
+              </div>
+
+              <svg className="absolute inset-0 w-full h-full opacity-10 pointer-events-none">
+                 <line x1="50%" y1="20%" x2="50%" y2="80%" stroke="currentColor" strokeWidth="1" />
+                 <line x1="20%" y1="50%" x2="80%" y2="50%" stroke="currentColor" strokeWidth="1" />
+              </svg>
+            </div>
           </div>
 
-          <div className="absolute top-6 left-6 p-4 bg-surface-bright border-thin border-foreground z-20 space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-accent" />
-              <span className="label-bold text-[9px]">PRIMARY ENTITY</span>
+          <div className="p-8 border-thick border-foreground bg-muted-background mt-4 relative overflow-hidden shadow-inner">
+             <div className="absolute top-0 right-0 p-2 opacity-10"><Terminal size={40} /></div>
+            <h3 className="label-bold text-[12px] mb-6 border-b border-foreground/10 pb-2 uppercase tracking-widest">Metadata_Buffer</h3>
+            <div className="space-y-4 font-mono">
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="opacity-40 uppercase tracking-tighter">Traversed_Path</span>
+                <span className="label-bold text-accent">GRAPH_ROOT/SEMANTIC_01</span>
+              </div>
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="opacity-40 uppercase tracking-tighter">Active_Relay</span>
+                <span className="label-bold uppercase">BGE_SMALL_PROJECTOR</span>
+              </div>
+              <p className="text-[11px] leading-relaxed uppercase font-medium opacity-80 pt-2 border-t border-foreground/5">
+                Latency optimized path detected via local index. Graph-density at query point exceeds threshold for high-fidelity synthesis.
+              </p>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-muted-background swiss-border-thin" />
-              <span className="label-bold text-[9px]">RELATED TOPIC</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-6 border-t-thick border-foreground bg-muted-background">
-          <h3 className="headline-lg text-[14px] mb-4">Node Metadata_</h3>
-          <div className="space-y-3">
-            <div className="flex justify-between border-b border-foreground/10 pb-2">
-              <span className="label-bold text-[10px] text-muted-text">TYPE</span>
-              <span className="label-bold text-[10px]">STRUCTURAL_PATTERN</span>
-            </div>
-            <div className="flex justify-between border-b border-foreground/10 pb-2">
-              <span className="label-bold text-[10px] text-muted-text">RELEVANCE</span>
-              <span className="label-bold text-[10px]">0.92</span>
-            </div>
-            <p className="text-[12px] leading-relaxed font-medium">
-              Central concept of the document cluster. Interconnected with 14 sub-modules through temporal event streams.
-            </p>
           </div>
         </div>
       </aside>

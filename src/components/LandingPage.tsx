@@ -1,32 +1,83 @@
 import React from 'react';
 import { SwissButton, ArrowRight, Shield, Zap, Network } from './SwissUI';
 
-export default function LandingPage() {
+import { motion } from 'motion/react';
+
+export default function LandingPage({ onNavigate }: { onNavigate: (v: string) => void }) {
   return (
     <div className="min-h-screen">
       {/* Hero Section */}
       <section className="grid grid-cols-1 md:grid-cols-12 min-h-0 md:min-h-[819px] border-b-thick border-foreground">
         <div className="md:col-span-7 p-6 md:p-12 flex flex-col justify-center border-r-0 md:border-r-thick border-foreground bg-surface-bright">
-          <span className="section-number mb-4">01. SYSTEM</span>
-          <h1 className="headline-xl text-[44px] md:text-[64px] mb-6">
-            GRAPH-AUGMENTED<br />EXPLAINABLE RETRIEVAL
-          </h1>
-          <p className="text-on-surface-variant max-w-xl mb-10 text-lg md:text-xl font-medium italic">
-            Bridging the gap between raw data and verifiable intelligence through a novel graph-reasoning architecture.
-          </p>
-          <SwissButton variant="accent" className="w-full md:w-fit text-lg py-5 px-10">
-            EXPLORE THE SYSTEM
-          </SwissButton>
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+          >
+            <span className="section-number mb-4">01. SYSTEM</span>
+            <h1 className="headline-xl text-[44px] md:text-[64px] mb-6">
+              GRAPH-AUGMENTED<br />EXPLAINABLE RETRIEVAL
+            </h1>
+            <p className="text-on-surface-variant max-w-xl mb-10 text-lg md:text-xl font-medium italic">
+              Bridging the gap between raw data and verifiable intelligence through a novel graph-reasoning architecture.
+            </p>
+            <SwissButton 
+              variant="accent" 
+              className="w-full md:w-fit text-lg py-5 px-10 group"
+              onClick={() => onNavigate('dashboard')}
+            >
+              EXPLORE THE SYSTEM
+              <ArrowRight className="ml-3 group-hover:translate-x-2 transition-transform" />
+            </SwissButton>
+          </motion.div>
         </div>
         <div className="md:col-span-5 relative overflow-hidden bg-surface-container flex items-center justify-center p-6 md:p-12 min-h-[300px] md:min-h-0">
           {/* Dot Pattern Overlay */}
           <div className="absolute inset-0 dot-pattern" />
           
-          <div className="w-full h-full relative border-thick border-foreground p-8 bg-surface z-10">
-            <div className="absolute top-10 left-10 w-40 h-40 bg-accent swiss-border" />
-            <div className="absolute bottom-20 right-10 w-60 h-20 bg-foreground" />
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 border-thick border-accent flex items-center justify-center">
-              <div className="w-24 h-24 bg-surface-container-highest border-thin swiss-border" />
+          <div className="w-full h-full relative border-thick border-foreground p-8 bg-surface z-10 flex items-center justify-center overflow-hidden">
+            <motion.div 
+              animate={{ 
+                rotate: 360,
+                scale: [1, 1.1, 1],
+              }}
+              transition={{ 
+                rotate: { duration: 20, repeat: Infinity, ease: "linear" },
+                scale: { duration: 4, repeat: Infinity, ease: "easeInOut" }
+              }}
+              className="w-64 h-64 border-thick border-accent/20 rounded-full flex items-center justify-center"
+            >
+               <motion.div 
+                animate={{ rotate: -360 }}
+                transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
+                className="w-48 h-48 border-thin border-foreground/10 rounded-full flex items-center justify-center"
+               >
+                 <div className="w-4 h-4 bg-accent rounded-full animate-ping" />
+               </motion.div>
+            </motion.div>
+
+            <motion.div 
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              className="absolute top-10 left-10 w-24 h-24 bg-accent swiss-border shadow-xl z-20"
+              style={{ rotate: '15deg' }}
+            />
+            <motion.div 
+              initial={{ x: 100 }}
+              animate={{ x: 0 }}
+              className="absolute bottom-20 right-4 w-48 h-12 bg-foreground z-20 flex items-center px-4"
+            >
+              <div className="w-full h-1 bg-accent/30 overflow-hidden">
+                <motion.div 
+                  animate={{ x: ['-100%', '100%'] }}
+                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                  className="w-1/2 h-full bg-accent"
+                />
+              </div>
+            </motion.div>
+
+            <div className="absolute inset-0 flex items-center justify-center opacity-5">
+              <Network size={400} strokeWidth={0.5} />
             </div>
           </div>
         </div>

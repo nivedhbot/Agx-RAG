@@ -1,4 +1,4 @@
-import { pipeline } from '@xenova/transformers';
+import { pipeline } from '@huggingface/transformers';
 import fs from 'fs-extra';
 import path from 'path';
 
@@ -12,7 +12,7 @@ interface Chunk {
 
 /**
  * TASK 3: Vector Store
- * Uses @xenova/transformers (BAAI/bge-small-en-v1.5) for embeddings.
+ * Uses @huggingface/transformers (BAAI/bge-small-en-v1.5) for embeddings.
  * Implements a simple Flat Inner Product (FlatIP) search.
  */
 export class VectorStore {
@@ -52,7 +52,7 @@ export class VectorStore {
     
     for (let i = 0; i < batchSize; i++) {
       const startIndex = i * embeddingSize;
-      const embedding = Array.from(output.data.slice(startIndex, startIndex + embeddingSize));
+      const embedding = Array.from(output.data.slice(startIndex, startIndex + embeddingSize)) as number[];
       
       newChunks[i].embedding = embedding;
       newChunks[i].id = Math.random().toString(36).substring(7);

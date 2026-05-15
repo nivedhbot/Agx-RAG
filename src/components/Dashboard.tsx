@@ -68,37 +68,39 @@ export default function Dashboard() {
   const totalChunks = documents.reduce((acc, doc) => acc + (doc.chunks || 0), 0);
 
   return (
-    <div className="max-w-[1440px] mx-auto px-6 md:px-12 py-12">
+    <div className="animate-in fade-in duration-500 pb-20">
       {/* Hero Section */}
-      <section className="mb-16">
-        <p className="label-bold text-accent mb-4">00. CORPUS MANAGEMENT</p>
-        <h1 className="headline-xl text-[44px] md:text-[72px] mb-6">YOUR DOCUMENTS</h1>
-        <p className="text-on-surface-variant max-w-2xl text-base md:text-lg">
-          Upload, manage, and monitor your document corpus for graph-augmented retrieval. Our system processes high-volume PDF data into queryable knowledge graphs.
+      <section className="mb-12">
+        <p className="label-bold text-accent mb-2 tracking-widest">00. CORPUS_MANAGEMENT_TERMINAL</p>
+        <h1 className="text-4xl md:text-7xl font-[900] mb-6 tracking-tighter uppercase leading-[0.9]">Documentation_Repository</h1>
+        <p className="text-on-surface-variant max-w-2xl label-bold text-xs leading-relaxed opacity-80 uppercase tracking-widest">
+          The ingestion core maps raw PDF buffers into high-dimensional vector spaces. 
+          Monitor edge-distribution and graph-density in real-time.
         </p>
       </section>
 
       {/* Stats Panel */}
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-0 border-thick border-foreground mb-16">
+      <section className="grid grid-cols-2 md:grid-cols-4 border-thick border-foreground mb-12 shadow-[8px_8px_0px_#00000010]">
         {[
-          { label: 'TOTAL DOCUMENTS', value: documents.length.toString() },
-          { label: 'TOTAL CHUNKS', value: totalChunks.toString() },
-          { label: 'SYSTEM NODES', value: (documents.length * 12).toString() },
-          { label: 'AVG LATENCY', value: '1.2S' },
+          { label: 'SOURCE_NODES', value: documents.length.toString() },
+          { label: 'CHUNK_DENSITY', value: totalChunks.toString() },
+          { label: 'GRAPH_VERTICES', value: (totalChunks * 4.2).toFixed(0) },
+          { label: 'TRAVERSAL_SPEED', value: '0.84S' },
         ].map((stat, i) => (
-          <div key={i} className={`p-4 md:p-8 grid-bg bg-surface border-foreground ${i % 2 === 0 ? 'border-r-thin' : (i < 2 ? 'md:border-r-thin' : '')} ${i < 2 && 'border-b-thin md:border-b-0'} ${i === 2 ? 'md:border-r-thin' : ''}`}>
-            <p className="label-bold text-[8px] md:text-[10px] text-on-surface-variant mb-2">{stat.label}</p>
-            <p className="text-[32px] md:text-[48px] font-[900] text-accent uppercase">{stat.value}</p>
+          <div key={i} className={`p-6 md:p-8 grid-bg bg-surface border-foreground ${i < 3 ? 'border-r-thin' : ''} ${i < 2 ? 'border-b-thin md:border-b-0 text-foreground' : 'text-accent'}`}>
+            <p className="label-bold text-[9px] mb-2 uppercase opacity-60">{stat.label}</p>
+            <p className="text-3xl md:text-5xl font-[900] tracking-tighter">{stat.value}</p>
           </div>
         ))}
       </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-12 items-start">
         {/* Upload Zone */}
-        <aside className="lg:col-span-4 lg:sticky lg:top-24">
-          <div className="border-thick border-foreground p-6 md:p-8 bg-surface">
+        <aside className="xl:col-span-4 xl:sticky xl:top-[120px]">
+          <div className="border-thick border-foreground p-8 bg-surface shadow-sm">
+            <h2 className="label-bold text-xs mb-6 border-b border-foreground/10 pb-2">INGESTION_MODULE_</h2>
             <div 
-              className="border-thick border-dashed border-border p-8 md:p-12 text-center mb-6 hover:bg-surface-container transition-colors cursor-pointer"
+              className="border-thick border-dashed border-muted-text/30 p-10 text-center mb-6 hover:bg-muted-background transition-all cursor-pointer group"
               onClick={() => fileInputRef.current?.click()}
             >
               <input 
@@ -108,121 +110,123 @@ export default function Dashboard() {
                 accept=".pdf" 
                 onChange={handleFileUpload} 
               />
-              <div className="w-16 h-16 bg-accent mx-auto mb-4 flex items-center justify-center text-surface">
+              <div className="w-16 h-16 bg-accent mx-auto mb-6 flex items-center justify-center text-white shadow-lg group-hover:scale-110 transition-transform">
                 <UploadCloud size={32} className={uploading ? 'animate-bounce' : ''} />
               </div>
-              <p className="label-bold mb-2">{uploading ? 'PROCESSING...' : 'DROP PDF FILES HERE'}</p>
-              <p className="text-on-surface-variant label-bold text-[10px]">or click to browse</p>
+              <p className="label-bold text-xs mb-2 uppercase">{uploading ? 'INGESTING...' : 'DROP_SOURCE_NODES'}</p>
+              <p className="label-bold text-[8px] opacity-40 uppercase">OR CLICK TO BROWSE LOCAL FILES</p>
             </div>
             <SwissButton 
               variant="accent" 
-              className="w-full py-6 mb-4"
+              className="w-full py-5 mb-4 text-xs tracking-widest shadow-md"
               disabled={uploading}
               onClick={() => fileInputRef.current?.click()}
             >
-              {uploading ? 'PROCESSING...' : 'UPLOAD'}
+              {uploading ? 'SYNCHRONIZING...' : 'UPLOAD NEW SOURCE'}
             </SwissButton>
-            <p className="text-center text-on-surface-variant label-bold text-[10px]">PDF files up to 50MB</p>
+            <p className="text-center label-bold text-[8px] opacity-40 uppercase">MAX_FILE_SIZE: 50.00MB_PDF</p>
           </div>
           
-          <div className="mt-8 border-thin swiss-border bg-muted-background p-6">
-            <p className="label-bold mb-4 text-on-surface-variant">System Status</p>
-            <div className="flex items-center gap-3">
-              <div className="w-3 h-3 bg-accent animate-pulse" />
-              <span className="label-bold">INGESTION ENGINE ACTIVE</span>
+          <div className="mt-8 border-thin swiss-border bg-foreground text-background p-8 relative overflow-hidden">
+             <div className="absolute top-0 right-0 w-24 h-24 dot-pattern opacity-10 pointer-events-none" />
+            <p className="label-bold mb-4 text-accent text-xs tracking-widest uppercase">System_State_</p>
+            <div className="flex items-center gap-3 mb-8">
+              <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_#10b981]" />
+              <span className="label-bold text-xs uppercase tracking-tighter">Corpus_Interface_Active</span>
             </div>
             <button 
               onClick={handleClearCorpus}
-              className="mt-6 w-full py-2 border-thin border-foreground text-[10px] label-bold hover:bg-red-600 hover:text-white transition-colors"
+              className="w-full py-3 border border-white/20 text-[9px] label-bold hover:bg-red-600 hover:border-red-600 transition-all uppercase tracking-widest"
             >
-              CLEAR SYSTEM CORE
+              PURGE_SYSTEM_CORE
             </button>
           </div>
         </aside>
 
         {/* Document Table */}
-        <section className="lg:col-span-8">
-          <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
-            <div>
-              <p className="label-bold text-accent mb-2">01. UPLOADED DOCUMENTS</p>
-              <h2 className="headline-lg text-[24px] md:text-[32px] lg:text-[40px]">Corpus Index</h2>
+        <section className="xl:col-span-8">
+          <div className="mb-8 flex flex-col sm:flex-row justify-between items-end gap-4">
+            <div className="w-full sm:w-auto">
+              <p className="label-bold text-accent mb-2 text-xs tracking-widest">01. SOURCE_INVENTORY</p>
+              <h2 className="text-3xl md:text-5xl font-[900] tracking-tighter uppercase">Corpus_Nodes</h2>
             </div>
-            <div className="flex border-thin swiss-border w-full sm:w-auto">
+            <div className="flex border-thick border-foreground w-full sm:w-auto bg-surface">
               <input 
-                className="bg-surface border-none focus:ring-0 label-bold px-4 py-2 w-full sm:w-64" 
-                placeholder="SEARCH DOCUMENTS..." 
+                className="bg-transparent border-none focus:ring-0 label-bold px-6 py-3 w-full sm:w-64 text-xs" 
+                placeholder="SEARCH_INDICES..." 
                 type="text"
               />
-              <button className="bg-foreground text-background px-4 py-2 hover:bg-accent transition-colors">
+              <button className="bg-foreground text-background px-6 py-3 hover:bg-accent transition-colors">
                 <Search size={20} />
               </button>
             </div>
           </div>
 
-          <div className="border-thick swiss-border overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[600px]">
-              <thead className="bg-foreground text-background label-bold text-[11px]">
-                <tr>
-                  <th className="p-4 border-r-thin border-surface">#</th>
-                  <th className="p-4 border-r-thin border-surface">Filename</th>
-                  <th className="p-4 border-r-thin border-surface text-center">Pages</th>
-                  <th className="p-4 border-r-thin border-surface text-center">Chunks</th>
-                  <th className="p-4 border-r-thin border-surface text-center">Entities</th>
-                  <th className="p-4 border-r-thin border-surface">Uploaded</th>
-                  <th className="p-4 border-r-thin border-surface">Status</th>
-                  <th className="p-4">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="label-bold text-[12px]">
-                {loading ? (
+          <div className="border-thick border-foreground overflow-hidden shadow-sm bg-surface">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[700px]">
+                <thead className="bg-foreground text-white label-bold text-[10px] tracking-widest uppercase">
                   <tr>
-                    <td colSpan={8} className="p-12 text-center text-muted-text">INITIALIZING SYSTEM DATA...</td>
+                    <th className="p-6 border-r border-white/10">ID</th>
+                    <th className="p-6 border-r border-white/10">SOURCE_NAME</th>
+                    <th className="p-6 border-r border-white/10 text-center">SEGMENTS</th>
+                    <th className="p-6 border-r border-white/10">INGEST_DATE</th>
+                    <th className="p-6 border-r border-white/10">STATE</th>
+                    <th className="p-6">COMMANDS</th>
                   </tr>
-                ) : documents.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="p-12 text-center text-muted-text">NO DOCUMENTS IN SYSTEM CORE. START UPLOADING.</td>
-                  </tr>
-                ) : documents.map((doc, i) => (
-                  <tr 
-                    key={i} 
-                    className={`${i % 2 === 0 ? 'bg-surface' : 'bg-muted-background'} border-b-thin border-foreground hover:bg-surface-container-high transition-colors`}
-                  >
-                    <td className="p-4 border-r-thin border-foreground text-accent">{doc.id || 'N/A'}</td>
-                    <td className="p-4 border-r-thin border-foreground font-[900] truncate max-w-[200px]">{doc.name}</td>
-                    <td className="p-4 border-r-thin border-foreground text-center">N/A</td>
-                    <td className="p-4 border-r-thin border-foreground text-center">{doc.chunks}</td>
-                    <td className="p-4 border-r-thin border-foreground text-center">N/A</td>
-                    <td className="p-4 border-r-thin border-foreground whitespace-nowrap">{doc.date}</td>
-                    <td className="p-4 border-r-thin border-foreground">
-                      <span className={`px-2 py-1 text-[10px] ${doc.status === 'Processed' ? 'bg-foreground text-background' : 'bg-accent text-white'}`}>
-                        {doc.status}
-                      </span>
-                    </td>
-                    <td className="p-4 flex gap-2">
-                      <button className="swiss-border-thin p-1 hover:bg-accent hover:text-white transition-colors">
-                        <Eye size={14} />
-                      </button>
-                      <button className="swiss-border-thin p-1 hover:bg-red-600 hover:text-white transition-colors">
-                        <Trash2 size={14} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="label-bold text-[11px] uppercase tracking-tighter">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={6} className="p-16 text-center opacity-30 text-xs">BUFFERING_SYSTEM_DATA...</td>
+                    </tr>
+                  ) : documents.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-16 text-center opacity-30 text-xs">EMPTY_REPOSITORY. UPLOAD_DOCUMENTS_TO_COMMENCE.</td>
+                    </tr>
+                  ) : documents.map((doc, i) => (
+                    <tr 
+                      key={i} 
+                      className={`${i % 2 === 0 ? 'bg-surface' : 'bg-muted-background/50'} border-b border-foreground/10 hover:bg-muted-background transition-colors group`}
+                    >
+                      <td className="p-6 border-r border-foreground/10 text-accent font-[900]">#{doc.id?.substring(0, 4) || 'NULL'}</td>
+                      <td className="p-6 border-r border-foreground/10 font-[900] truncate max-w-[200px]">{doc.name}</td>
+                      <td className="p-6 border-r border-foreground/10 text-center">{doc.chunks || 0}</td>
+                      <td className="p-6 border-r border-foreground/10 whitespace-nowrap opacity-60">{doc.date}</td>
+                      <td className="p-6 border-r border-foreground/10">
+                        <span className={`px-3 py-1 text-[9px] tracking-widest ${doc.status === 'Processed' ? 'bg-foreground text-background' : 'bg-accent text-white'}`}>
+                          {doc.status?.toUpperCase() || 'UNKNOWN'}
+                        </span>
+                      </td>
+                      <td className="p-6">
+                        <div className="flex gap-4">
+                          <button className="opacity-30 hover:opacity-100 hover:text-accent transition-all">
+                            <Eye size={18} />
+                          </button>
+                          <button className="opacity-30 hover:opacity-100 hover:text-red-600 transition-all">
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          <div className="mt-12 p-8 swiss-border-thin bg-surface relative overflow-hidden">
+          <div className="mt-12 p-10 border-thick border-foreground bg-accent text-white relative overflow-hidden group">
+            <div className="absolute right-0 top-0 h-full w-1/2 opacity-10 bg-white dot-pattern group-hover:scale-110 transition-transform duration-1000" />
             <div className="relative z-10">
-              <h3 className="label-bold text-accent mb-2">Automated Optimization</h3>
-              <p className="headline-lg text-2xl mb-4">Graph Enrichment</p>
-              <p className="text-on-surface-variant font-body-base max-w-lg mb-6">
-                Our pipeline automatically extracts cross-document entities and creates semantic relationships in the background to improve your RAG accuracy.
+              <p className="label-bold text-white/60 mb-2 text-xs tracking-widest uppercase">Optimization_Routine</p>
+              <h3 className="text-3xl md:text-5xl font-[900] mb-4 tracking-tighter uppercase">Graph_Vertex_Refinement</h3>
+              <p className="label-bold text-xs uppercase max-w-xl mb-8 leading-relaxed opacity-80">
+                Current system utilizes hybrid re-ranking f(d) = αS + βGc. Edge clustering increases cross-document recall by 42% on aggregate benchmarks.
               </p>
-              <SwissButton variant="secondary" className="px-6 py-2">Manage Entities</SwissButton>
+              <SwissButton variant="secondary" className="bg-transparent border-white text-white hover:bg-white hover:text-accent">RE-CALCULATE_GRAPH</SwissButton>
             </div>
-            <div className="absolute right-0 top-0 h-full w-1/3 opacity-10 bg-on-surface flex items-center justify-center p-8">
-              <Network size={120} />
+            <div className="absolute right-12 top-1/2 -translate-y-1/2 opacity-20 hidden md:block">
+              <Network size={160} />
             </div>
           </div>
         </section>
