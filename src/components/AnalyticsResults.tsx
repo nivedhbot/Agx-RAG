@@ -24,8 +24,170 @@ import {
   Settings,
 } from './SwissUI';
 
-export default function AnalyticsResults({ queryData }: { 
-  queryData?: any 
+type KGNode = { id: string; label: string; type: string; confidence: number; centrality: number };
+type KGEdge = { id: string; source: string; target: string; label: string; weight: number };
+type KnowledgeGraph = { nodes: KGNode[]; edges: KGEdge[]; query_entity: string | null };
+
+function KnowledgeGraphPanel({ graph }: { graph?: KnowledgeGraph }) {
+  const layout = useMemo(() => {
+    if (!graph || !graph.nodes?.length) return null;
+
+    const W = 520, H = 460, CX = W / 2, CY = H / 2;
+    const RING = { query_entity: 0, entity: 140, chunk: 215, bridge_chunk: 215 };
+
+    const groups: Record<string, KGNode[]> = {
+      query_entity: [],
+      entity: [],
+      chunk: [],
+      bridge_chunk: []
+    };
+    for (const n of graph.nodes) {
+      const key = groups[n.type] ? n.type : 'entity';
+      groups[key].push(n);
+    }
+
+    const positions = new Map<string, { x: number; y: number; type: string }>();
+
+    const placeRing = (nodes: KGNode[], radius: number, phase = 0) => {
+      const n = nodes.length;
+      if (n === 0) return;
+      if (n === 1 && radius === 0) {
+        positions.set(nodes[0].id, { x: CX, y: CY, type: nodes[0].type });
+        return;
+      }
+      nodes.forEach((node, i) => {
+        const a = phase + (2 * Math.PI * i) / Math.max(n, 1);
+        positions.set(node.id, {
+          x: CX + radius * Math.cos(a),
+          y: CY + radius * Math.sin(a),
+          type: node.type
+        });
+      });
+    };
+
+    if (groups.query_entity.length > 1) {
+      placeRing(groups.query_entity, 55, -Math.PI / 2);
+    } else {
+      placeRing(groups.query_entity, 0);
+    }
+    placeRing(groups.entity, RING.entity, -Math.PI / 2);
+    placeRing([...groups.bridge_chunk, ...groups.chunk], RING.chunk, -Math.PI / 2 + 0.15);
+
+    return { W, H, positions, nodes: graph.nodes, edges: graph.edges };
+  }, [graph]);
+
+  if (!layout) {
+    return (
+      <div className="border-thick border-foreground bg-muted-background grid-bg relative p-8 min-h-[460px] flex items-center justify-center">
+        <span className="label-bold text-[10px] tracking-widest text-muted-text uppercase opacity-50">
+          NO_GRAPH_DATA · RUN_A_QUERY
+        </span>
+      </div>
+    );
+  }
+
+  const { W, H, positions, nodes, edges } = layout;
+
+  const NODE_W: Record<string, number> = { query_entity: 110, entity: 90, chunk: 96, bridge_chunk: 96 };
+  const NODE_H = 26;
+
+  const truncate = (s: string, n: number) =>
+    s.length > n ? s.substring(0, n - 1) + '…' : s;
+
+  return (
+    <div className="border-thick border-foreground bg-muted-background grid-bg relative p-4 md:p-6 min-h-[460px]">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" preserveAspectRatio="xMidYMid meet">
+        {/* Edges */}
+        <g>
+          {edges.map(e => {
+            const a = positions.get(e.source);
+            const b = positions.get(e.target);
+            if (!a || !b) return null;
+            const isBridgeEdge = b.type === 'bridge_chunk' || a.type === 'query_entity';
+            return (
+              <line
+                key={e.id}
+                x1={a.x}
+                y1={a.y}
+                x2={b.x}
+                y2={b.y}
+                stroke={isBridgeEdge ? '#C4501A' : '#1C1410'}
+                strokeWidth={isBridgeEdge ? 1.2 : 0.6}
+                strokeOpacity={isBridgeEdge ? 0.55 : 0.18}
+              />
+            );
+          })}
+        </g>
+
+        {/* Nodes */}
+        <g>
+          {nodes.map(n => {
+            const p = positions.get(n.id);
+            if (!p) return null;
+            const w = NODE_W[n.type] || 90;
+            const isQuery = n.type === 'query_entity';
+            const isBridge = n.type === 'bridge_chunk';
+            const isChunk = n.type === 'chunk' || isBridge;
+
+            const fill = isQuery ? '#C4501A' : isBridge ? '#F5F0E8' : isChunk ? '#FFFFFF' : '#FFFFFF';
+            const stroke = isBridge ? '#C4501A' : '#1C1410';
+            const textColor = isQuery ? '#FFFFFF' : '#1C1410';
+
+            return (
+              <g key={n.id}>
+                <rect
+                  x={p.x - w / 2}
+                  y={p.y - NODE_H / 2}
+                  width={w}
+                  height={NODE_H}
+                  fill={fill}
+                  stroke={stroke}
+                  strokeWidth={isQuery || isBridge ? 2 : 1}
+                />
+                <text
+                  x={p.x}
+                  y={p.y + 4}
+                  textAnchor="middle"
+                  fontFamily="Inter, Arial, sans-serif"
+                  fontSize={isQuery ? 10 : 9}
+                  fontWeight={700}
+                  fill={textColor}
+                  style={{ letterSpacing: '0.05em', textTransform: 'uppercase' }}
+                >
+                  {truncate(n.label, isChunk ? 14 : 13)}
+                </text>
+              </g>
+            );
+          })}
+        </g>
+      </svg>
+
+      {/* Legend */}
+      <div className="absolute bottom-4 right-4 bg-white border-thin swiss-border p-3 space-y-2 shadow-md">
+        <div className="flex items-center gap-3">
+          <div className="w-3 h-3 bg-accent" />
+          <span className="label-bold text-[8px] tracking-widest">QUERY_ENTITY</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="w-3 h-3 bg-white swiss-border-thin" style={{ border: '1px solid #1C1410' }} />
+          <span className="label-bold text-[8px] tracking-widest">ENTITY · CHUNK</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="w-3 h-3" style={{ background: '#F5F0E8', border: '2px solid #C4501A' }} />
+          <span className="label-bold text-[8px] tracking-widest">BRIDGE_CHUNK</span>
+        </div>
+      </div>
+
+      {/* Stats overlay */}
+      <div className="absolute top-4 left-4 bg-foreground text-background px-3 py-2 label-bold text-[9px] tracking-widest">
+        {nodes.length} NODES · {edges.length} EDGES
+      </div>
+    </div>
+  );
+}
+
+export default function AnalyticsResults({ queryData }: {
+  queryData?: any
 }) {
   const [corpusStats, setCorpusStats] = React.useState<any[]>([]);
 
@@ -110,30 +272,7 @@ export default function AnalyticsResults({ queryData }: {
 
           <div className="lg:col-span-5">
             <span className="label-bold mb-4 block text-xs">07. ENTITY_MAPPING</span>
-            <div className="border-thick border-foreground bg-muted-background grid-bg relative p-4 md:p-8 min-h-[300px] md:min-h-[450px]">
-              <div className="absolute top-10 left-4 md:left-10 bg-accent text-white border-thin swiss-border px-4 py-2 label-bold text-[10px] shadow-lg">PRIMARY_PIVOT</div>
-              <div className="absolute top-1/2 left-1/4 bg-white border-thin swiss-border px-4 py-2 label-bold text-[10px] shadow-lg">RELATIONAL_BRIDGE</div>
-              <div className="absolute top-1/3 right-10 bg-white border-thin swiss-border px-4 py-2 label-bold text-[10px] shadow-lg">CONTEXT_NODE</div>
-              
-              <svg className="absolute inset-0 w-full h-full opacity-20 pointer-events-none">
-                <line x1="25%" y1="15%" x2="40%" y2="50%" stroke="currentColor" strokeWidth="2" />
-                <line x1="40%" y1="50%" x2="80%" y2="35%" stroke="currentColor" strokeWidth="2" />
-                <circle cx="25%" cy="15%" r="4" fill="currentColor" />
-                <circle cx="40%" cy="50%" r="4" fill="currentColor" />
-                <circle cx="80%" cy="35%" r="4" fill="currentColor" />
-              </svg>
-
-              <div className="absolute bottom-6 right-6 bg-white border-thin swiss-border p-4 space-y-3 shadow-md">
-                <div className="flex items-center gap-3">
-                  <div className="w-3 h-3 bg-accent" />
-                  <span className="label-bold text-[8px] tracking-widest">ACTIVE PIVOT</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-3 h-3 bg-white swiss-border-thin" />
-                  <span className="label-bold text-[8px] tracking-widest">NEIGHBOR NODE</span>
-                </div>
-              </div>
-            </div>
+            <KnowledgeGraphPanel graph={data.knowledgeGraph} />
           </div>
         </div>
 

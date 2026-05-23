@@ -95,6 +95,109 @@ export class GraphBuilder {
   }
 
   /**
+   * Extract entities from a query string using the same NER as updateGraph.
+   */
+  private extractQueryEntities(query: string): string[] {
+    const queryDoc = nlp(query);
+    return [
+      ...queryDoc.organizations().out('array'),
+      ...queryDoc.people().out('array'),
+      ...queryDoc.topics().out('array')
+    ].map(e => e.toLowerCase().trim()).filter(e => e.length > 2);
+  }
+
+  /**
+   * Build the evidence-chain subgraph for a query: query entities + the top chunks
+   * (passed in) + every entity node connected to those chunks + the entity->chunk
+   * edges between them. Returns {nodes, edges} ready for the UI.
+   */
+  getQuerySubgraph(
+    query: string,
+    topChunks: { id?: string; text: string; source: string }[]
+  ) {
+    const queryEntities = new Set(this.extractQueryEntities(query));
+    const bridgingChunkIds = new Set(this.getBridgingChunks(query));
+
+    const includedEntityIds = new Set<string>();
+    const nodes: any[] = [];
+    const edges: any[] = [];
+
+    for (const chunk of topChunks) {
+      if (!chunk.id || !this.graph.hasNode(chunk.id)) continue;
+
+      const inboundEntities = this.graph.inNeighbors(chunk.id);
+      const centrality = inboundEntities.length;
+      const isBridge = bridgingChunkIds.has(chunk.id);
+
+      nodes.push({
+        id: chunk.id,
+        label: `${chunk.source} · ${chunk.text.substring(0, 40).replace(/\s+/g, ' ')}…`,
+        type: isBridge ? 'bridge_chunk' : 'chunk',
+        confidence: 1.0,
+        centrality
+      });
+
+      for (const entity of inboundEntities) {
+        if (!includedEntityIds.has(entity)) {
+          includedEntityIds.add(entity);
+          const entityCentrality = this.graph.outDegree(entity);
+          nodes.push({
+            id: entity,
+            label: entity,
+            type: queryEntities.has(entity) ? 'query_entity' : 'entity',
+            confidence: queryEntities.has(entity) ? 1.0 : 0.7,
+            centrality: entityCentrality
+          });
+        }
+        edges.push({
+          id: `${entity}->${chunk.id}`,
+          source: entity,
+          target: chunk.id,
+          label: 'mentions',
+          weight: 1.0
+        });
+      }
+    }
+
+    return {
+      nodes,
+      edges,
+      query_entity: queryEntities.size > 0 ? Array.from(queryEntities)[0] : null
+    };
+  }
+
+  /**
+   * Export the full persistent graph as plain {nodes, edges} for /api/graph.
+   */
+  exportFull() {
+    const nodes: any[] = [];
+    const edges: any[] = [];
+
+    this.graph.forEachNode((id, attrs) => {
+      nodes.push({
+        id,
+        label: attrs.type === 'chunk'
+          ? `${attrs.source} · ${(attrs.text || '').substring(0, 40)}…`
+          : id,
+        type: attrs.type,
+        centrality: attrs.type === 'entity' ? this.graph.outDegree(id) : this.graph.inDegree(id),
+        confidence: 1.0
+      });
+    });
+
+    this.graph.forEachEdge((edgeId, _attrs, source, target) => {
+      edges.push({ id: edgeId, source, target, label: 'mentions', weight: 1.0 });
+    });
+
+    return {
+      nodes,
+      edges,
+      node_count: this.graph.order,
+      edge_count: this.graph.size
+    };
+  }
+
+  /**
    * Finds chunks that act as bridges between entities in the query.
    */
   getBridgingChunks(query: string): string[] {

@@ -92,10 +92,14 @@ async function startServer() {
     try {
       // 1. Hybrid Pipeline (TASK 5)
       const reRankedResults = await ragPipeline.process(query, 20);
-      
+      const topChunks = reRankedResults.slice(0, 5);
+
       // 2. LLM Generation (TASK 6)
       // We pass the top 5 chunks for context
-      const generation = await llmGenerator.generate(query, reRankedResults.slice(0, 5));
+      const generation = await llmGenerator.generate(query, topChunks);
+
+      // 3. Evidence-chain subgraph for FR7 explainability
+      const knowledgeGraph = graphBuilder.getQuerySubgraph(query, topChunks);
 
       const latency = `${Date.now() - startTime}ms`;
 
@@ -105,10 +109,16 @@ async function startServer() {
         latency,
         sources: generation.sources,
         reasoningPath: generation.reasoningPath,
-        topChunks: reRankedResults.slice(0, 5).map(r => ({
+        knowledgeGraph,
+        topChunks: topChunks.map(r => ({
+          id: r.id,
           text: r.text,
           source: r.source,
           score: r.finalScore,
+          semanticScore: r.score,
+          graphScore: r.graphScore,
+          relationalScore: r.relationalScore,
+          contradictionPenalty: r.contradictionPenalty,
           isContradiction: r.contradictionPenalty > 0
         }))
       });
@@ -140,11 +150,7 @@ async function startServer() {
 
   // TASK 1: Get Graph
   app.get('/api/graph', (req, res) => {
-    // We could export the graph from graphBuilder, but it might be too large
-    // For now, let's return a summary
-    res.json({
-      message: "Graph data available via builder"
-    });
+    res.json(graphBuilder.exportFull());
   });
 
   // TASK 1: Clear Corpus

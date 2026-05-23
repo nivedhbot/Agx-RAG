@@ -19,6 +19,8 @@ interface Message {
   sources?: string[];
   reasoningPath?: string;
   topChunks?: any[];
+  knowledgeGraph?: { nodes: any[]; edges: any[]; query_entity: string | null };
+  query?: string;
   isLoading?: boolean;
 }
 
@@ -49,14 +51,15 @@ export default function ChatDashboard({ onShowAnalysis }: {
       
       setMessages(prev => {
         const last = prev[prev.length - 1];
-        return [...prev.slice(0, -1), { 
-          ...last, 
-          content: data.answer, 
+        return [...prev.slice(0, -1), {
+          ...last,
+          content: data.answer,
           confidence: data.confidence,
           latency: data.latency,
           sources: data.sources,
           reasoningPath: data.reasoningPath,
           topChunks: data.topChunks,
+          knowledgeGraph: data.knowledgeGraph,
           isLoading: false,
           query: currentQuery // Store original query for analysis
         } as any];
