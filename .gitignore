@@ -6,3 +6,5 @@ coverage/
 *.log
 .env*
 vectorstore/
+.last-query.json
+.dev-server.log

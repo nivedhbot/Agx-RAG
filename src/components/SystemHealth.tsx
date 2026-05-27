@@ -1,34 +1,86 @@
-import React from 'react';
-import { 
-  Activity, 
-  Cpu, 
-  Database, 
-  Zap, 
+import React, { useEffect, useState } from 'react';
+import {
+  Activity,
+  Cpu,
+  Database,
+  Zap,
   Network,
-  Shield,
-  Terminal
 } from './SwissUI';
-import { 
-  LineChart, 
-  Line, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
-  AreaChart, 
-  Area 
+import {
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  AreaChart,
+  Area,
 } from 'recharts';
 
+interface LogEntry {
+  ts: string;
+  level: 'info' | 'warn' | 'error';
+  message: string;
+}
+
+interface MetricsSnapshot {
+  uptimeSeconds: number;
+  queryCount: number;
+  uploadCount: number;
+  avgLatencyMs: number;
+  avgConfidencePct: number;
+  contradictionsTotal: number;
+  corpusChunks: number;
+  graphNodes: number;
+  graphEdges: number;
+  series: Array<{ time: string; latency: number; confidence: number }>;
+  logs: LogEntry[];
+}
+
+const POLL_MS = 5000;
+
 export default function SystemHealth() {
-  const [performanceData] = React.useState(() => 
-    Array.from({ length: 20 }, (_, i) => ({
-      time: `${i}:00`,
-      cpu: 40 + Math.random() * 40,
-      memory: 30 + Math.random() * 20,
-      latency: 100 + Math.random() * 500,
-    }))
-  );
+  const [data, setData] = useState<MetricsSnapshot | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const fetchMetrics = async () => {
+      try {
+        const res = await fetch('/api/health/metrics');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (alive) {
+          setData(json);
+          setError(null);
+        }
+      } catch (e: any) {
+        if (alive) setError(e.message);
+      }
+    };
+    fetchMetrics();
+    const id = window.setInterval(fetchMetrics, POLL_MS);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  if (!data) {
+    return (
+      <div className="animate-in fade-in duration-500 pb-20">
+        <p className="label-bold text-[10px] tracking-widest opacity-50 uppercase">
+          {error ? `ERROR: ${error}` : 'LOADING_METRICS...'}
+        </p>
+      </div>
+    );
+  }
+
+  const stats = [
+    { icon: Activity, label: 'UPTIME', val: formatUptime(data.uptimeSeconds), trend: `${data.queryCount} QUERIES` },
+    { icon: Zap, label: 'AVG_LATENCY', val: `${data.avgLatencyMs}MS`, trend: data.queryCount > 0 ? `${data.avgConfidencePct}% CONF` : 'NO_DATA' },
+    { icon: Database, label: 'CORPUS_CHUNKS', val: `${data.corpusChunks}`, trend: `${data.uploadCount} UPLOADS` },
+    { icon: Network, label: 'GRAPH', val: `${data.graphNodes} NODES`, trend: `${data.graphEdges} EDGES` },
+  ];
 
   return (
     <div className="animate-in fade-in duration-500 pb-20">
@@ -36,18 +88,18 @@ export default function SystemHealth() {
         <span className="label-bold text-accent mb-2 block">11. TELEMETRY DATA</span>
         <h2 className="headline-lg text-4xl mb-4">Diagnostics_Panel</h2>
         <p className="text-on-surface-variant max-w-xl label-bold text-xs uppercase tracking-wider">
-          Real-time monitoring of graph traversal speeds, embedding latency, and system resource distribution.
+          LIVE METRICS POLLED FROM /API/HEALTH/METRICS EVERY 5S.
+          {data.contradictionsTotal > 0 && (
+            <span className="block mt-2 text-red-600">
+              ⚠ {data.contradictionsTotal} TOTAL CONTRADICTIONS DETECTED ACROSS SESSION.
+            </span>
+          )}
         </p>
       </section>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-        {[
-          { icon: Activity, label: 'UPTIME', val: '99.98%', trend: '+0.01%' },
-          { icon: Zap, label: 'AVG_LATENCY', val: '342MS', trend: '-12MS' },
-          { icon: Database, label: 'STORAGE_LOAD', val: '4.2GB', trend: 'STABLE' },
-          { icon: Network, label: 'GRAPH_NODES', val: '1.4M', trend: '+2K/HR' },
-        ].map((stat, i) => (
-          <div key={i} className="border-thick border-foreground p-6 bg-surface group hover:bg-foreground hover:text-background transition-colors cursor-crosshair">
+        {stats.map((stat, i) => (
+          <div key={i} className="border-thick border-foreground p-6 bg-surface group hover:bg-foreground hover:text-background transition-colors">
             <div className="flex justify-between items-start mb-6">
               <stat.icon className="text-accent group-hover:text-white" size={24} />
               <span className="label-bold text-[10px] text-accent group-hover:text-white">{stat.trend}</span>
@@ -61,46 +113,63 @@ export default function SystemHealth() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
         <div className="border-thick border-foreground p-8 bg-surface overflow-hidden">
           <h3 className="label-bold mb-8 border-b border-foreground/10 pb-2 flex justify-between">
-            <span>CPU_VS_MEMORY_EFFICIENCY_</span>
+            <span>LATENCY_VS_CONFIDENCE_</span>
             <span className="text-accent">LIVE_FEED</span>
           </h3>
           <div className="h-[300px] w-full min-h-[300px]">
-            <ResponsiveContainer width="100%" height="100%" minHeight={300}>
-              <AreaChart data={performanceData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
-                <XAxis dataKey="time" hide />
-                <YAxis fontSize={10} tick={{ fill: '#000' }} />
-                <Tooltip />
-                <Area type="monotone" dataKey="cpu" stroke="#FF4D00" fill="#FF4D00" fillOpacity={0.1} />
-                <Area type="monotone" dataKey="memory" stroke="#000000" fill="#000000" fillOpacity={0.05} />
-              </AreaChart>
-            </ResponsiveContainer>
+            {data.series.length === 0 ? (
+              <div className="flex items-center justify-center h-full opacity-40 label-bold text-[10px] tracking-widest uppercase">
+                NO_QUERIES_YET
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%" minHeight={300}>
+                <AreaChart data={data.series}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
+                  <XAxis dataKey="time" hide />
+                  <YAxis fontSize={10} tick={{ fill: '#000' }} />
+                  <Tooltip />
+                  <Area type="monotone" dataKey="latency" name="Latency (ms)" stroke="#FF4D00" fill="#FF4D00" fillOpacity={0.1} />
+                  <Area type="monotone" dataKey="confidence" name="Confidence (%)" stroke="#000000" fill="#000000" fillOpacity={0.05} />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
         <div className="border-thick border-foreground p-8 bg-surface">
           <h3 className="label-bold mb-8 border-b border-foreground/10 pb-2 flex justify-between">
-            <span>INTERFERENCE_LOGS_</span>
-            <span className="text-accent">LEVEL_4</span>
+            <span>RECENT_LOGS_</span>
+            <span className="text-accent">{data.logs.length}_ENTRIES</span>
           </h3>
-          <div className="space-y-4 font-mono text-[10px] uppercase">
-            {[
-              '2024-03-21 12:44:01 - NODE_RESOLVER - SUCCESS - 0.2MS',
-              '2024-03-21 12:44:05 - EMBEDDING_CACHE - HIT - 0.05MS',
-              '2024-03-21 12:44:09 - RE-RANKER_F(D) - EXECUTED - 142MS',
-              '2024-03-21 12:44:12 - GRAPH_PERSIST - SERIALIZED - 850KB',
-              '2024-03-21 12:44:15 - UI_POLLING - STABLE',
-              '2024-03-21 12:44:18 - SECURITY_GUARD - NO_THREAT_DETECTED',
-            ].map((log, i) => (
-              <div key={i} className="flex gap-4 border-b border-foreground/5 pb-2">
-                <span className="opacity-40">{i+1024}</span>
-                <span className="flex-1">{log}</span>
-                <span className="text-green-600">OK_</span>
-              </div>
-            ))}
+          <div className="space-y-2 font-mono text-[10px] uppercase max-h-[300px] overflow-y-auto">
+            {data.logs.length === 0 ? (
+              <div className="opacity-40">NO_EVENTS_YET</div>
+            ) : (
+              data.logs.slice().reverse().map((log, i) => (
+                <div key={i} className="flex gap-3 border-b border-foreground/5 pb-2">
+                  <span className="opacity-40 shrink-0">{log.ts.slice(11, 19)}</span>
+                  <span
+                    className={`shrink-0 label-bold ${
+                      log.level === 'error' ? 'text-red-600' : log.level === 'warn' ? 'text-yellow-600' : 'text-foreground/60'
+                    }`}
+                  >
+                    {log.level.toUpperCase()}
+                  </span>
+                  <span className="flex-1 truncate">{log.message}</span>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
     </div>
   );
+}
+
+function formatUptime(seconds: number): string {
+  if (seconds < 60) return `${seconds}S`;
+  const m = Math.floor(seconds / 60);
+  if (m < 60) return `${m}M`;
+  const h = Math.floor(m / 60);
+  return `${h}H ${m % 60}M`;
 }
