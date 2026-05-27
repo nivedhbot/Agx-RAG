@@ -1,6 +1,5 @@
 import { pipeline } from '@huggingface/transformers';
-import fs from 'fs-extra';
-import path from 'path';
+import { pickBackend, type VectorBackend, type StoredChunk } from './vectorBackends.js';
 
 interface Chunk {
   text: string;
@@ -11,22 +10,15 @@ interface Chunk {
 }
 
 /**
- * TASK 3: Vector Store
- * Uses @huggingface/transformers (BAAI/bge-small-en-v1.5) for embeddings.
- * Implements a simple Flat Inner Product (FlatIP) search.
+ * Vector store with pluggable persistence (Postgres + pgvector, or JSON file).
+ * Uses @huggingface/transformers (bge-small-en-v1.5, 384-dim) for embeddings.
+ * Keeps an in-memory mirror of all chunks so the synchronous callers
+ * (server.ts, metrics) don't have to become async.
  */
 export class VectorStore {
   private chunks: Chunk[] = [];
   private extractor: any = null;
-  private readonly storePath = path.join(process.cwd(), 'vectorstore', 'index.json');
-
-  constructor() {
-    this.ensureDirectory();
-  }
-
-  private async ensureDirectory() {
-    await fs.ensureDir(path.join(process.cwd(), 'vectorstore'));
-  }
+  private backend: VectorBackend | null = null;
 
   private async getExtractor() {
     if (!this.extractor) {
@@ -36,68 +28,84 @@ export class VectorStore {
     return this.extractor;
   }
 
+  private async getBackend(): Promise<VectorBackend> {
+    if (!this.backend) this.backend = await pickBackend();
+    return this.backend;
+  }
+
+  backendName(): 'postgres' | 'json' | 'unknown' {
+    return this.backend?.name ?? 'unknown';
+  }
+
   async addChunks(newChunks: Chunk[]) {
     const extractor = await this.getExtractor();
-    
+    const backend = await this.getBackend();
+
     console.log(`Generating embeddings for ${newChunks.length} chunks...`);
-    
-    // Batch process embeddings for significant speedup
+
     const texts = newChunks.map(c => c.text);
     const output = await extractor(texts, { pooling: 'mean', normalize: true });
-    
-    // output.data is a Float32Array containing all embeddings
-    // output.dims is [batchSize, embeddingSize]
     const batchSize = output.dims[0];
     const embeddingSize = output.dims[1];
-    
+
+    const stored: StoredChunk[] = [];
     for (let i = 0; i < batchSize; i++) {
       const startIndex = i * embeddingSize;
       const embedding = Array.from(output.data.slice(startIndex, startIndex + embeddingSize)) as number[];
-      
       newChunks[i].embedding = embedding;
       newChunks[i].id = Math.random().toString(36).substring(7);
       this.chunks.push(newChunks[i]);
+      stored.push({
+        id: newChunks[i].id!,
+        text: newChunks[i].text,
+        source: newChunks[i].source,
+        page: newChunks[i].page,
+        embedding,
+      });
     }
-    
-    await this.save();
+
+    await backend.add(stored);
     return newChunks;
   }
 
   async search(query: string, topK: number = 20) {
     const extractor = await this.getExtractor();
+    const backend = await this.getBackend();
     const output = await extractor(query, { pooling: 'mean', normalize: true });
     const queryEmbedding = Array.from(output.data) as number[];
 
-    const results = this.chunks.map(chunk => {
-      const score = this.dotProduct(queryEmbedding, chunk.embedding!);
-      return { ...chunk, score };
-    });
-
-    return results
-      .sort((a, b) => b.score - a.score)
-      .slice(0, topK);
-  }
-
-  private dotProduct(a: number[], b: number[]): number {
-    return a.reduce((sum, val, i) => sum + val * b[i], 0);
-  }
-
-  async save() {
-    await fs.writeJson(this.storePath, this.chunks);
+    // Delegate to backend. Postgres uses pgvector's <#> operator; JSON does
+    // an in-memory linear scan.
+    const results = await backend.searchTopK(queryEmbedding, topK);
+    return results.map(r => ({
+      id: r.id,
+      text: r.text,
+      source: r.source,
+      page: r.page,
+      embedding: r.embedding,
+      score: r.score,
+    }));
   }
 
   async load() {
-    if (await fs.pathExists(this.storePath)) {
-      this.chunks = await fs.readJson(this.storePath);
-      console.log(`Loaded ${this.chunks.length} chunks from vector store.`);
+    const backend = await this.getBackend();
+    const all = await backend.loadAll();
+    this.chunks = all.map(c => ({
+      id: c.id,
+      text: c.text,
+      source: c.source,
+      page: c.page,
+      embedding: c.embedding,
+    }));
+    if (this.chunks.length > 0) {
+      console.log(`Loaded ${this.chunks.length} chunks from ${backend.name} backend.`);
     }
   }
 
   async clear() {
     this.chunks = [];
-    if (await fs.pathExists(this.storePath)) {
-      await fs.remove(this.storePath);
-    }
+    const backend = await this.getBackend();
+    await backend.clear();
   }
 
   getAllChunks() {
