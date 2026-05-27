@@ -1,6 +1,7 @@
 
 import { vectorStore } from './vectorStore.js';
 import { graphBuilder } from './graphBuilder.js';
+import { settings } from './settings.js';
 
 interface ScoredChunk {
   text: string;
@@ -19,10 +20,6 @@ interface ScoredChunk {
  * Implements F(d) = α·S + β·Gc + γ·Rc − λ·Cp
  */
 export class RagPipeline {
-  private readonly ALPHA = 0.60;
-  private readonly BETA = 0.20;
-  private readonly GAMMA = 0.15;
-  private readonly LAMBDA = 0.05;
 
   async process(query: string, topK: number = 20): Promise<ScoredChunk[]> {
     // 1. Initial Retrieval
@@ -48,12 +45,13 @@ export class RagPipeline {
     // 3. Contradiction Detection
     this.detectContradictions(processedChunks);
 
-    // 4. Calculate Final Hybrid Score
+    // 4. Calculate Final Hybrid Score using current settings.
+    const { alpha, beta, gamma, lambda } = settings.get().ragWeights;
     processedChunks.forEach(chunk => {
-      chunk.finalScore = (this.ALPHA * chunk.score) + 
-                         (this.BETA * chunk.graphScore) + 
-                         (this.GAMMA * chunk.relationalScore) - 
-                         (this.LAMBDA * chunk.contradictionPenalty);
+      chunk.finalScore = (alpha * chunk.score) +
+                         (beta * chunk.graphScore) +
+                         (gamma * chunk.relationalScore) -
+                         (lambda * chunk.contradictionPenalty);
     });
 
     return processedChunks.sort((a, b) => b.finalScore - a.finalScore);

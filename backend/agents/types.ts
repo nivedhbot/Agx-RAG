@@ -1,0 +1,119 @@
+// Shared types for the 5-agent CGoT-MARS pipeline.
+
+export type ClaimRelation = 'supports' | 'contradicts' | 'elaborates';
+
+export interface Claim {
+  id: string;
+  text: string;
+  sourceChunkId: string;
+  source: string;
+  page?: number;
+  confidence: number;
+}
+
+export interface ClaimEdge {
+  source: string;
+  target: string;
+  relation: ClaimRelation;
+  nliScore: number;
+}
+
+export interface ClaimGraph {
+  nodes: Claim[];
+  edges: ClaimEdge[];
+  queryNodeId: string;
+}
+
+export interface Contradiction {
+  claimA: string;
+  claimB: string;
+  explanation: string;
+}
+
+export interface RetrievedChunk {
+  id: string;
+  text: string;
+  source: string;
+  page?: number;
+  embedding?: number[];
+  score: number;
+  graphScore: number;
+  relationalScore: number;
+  contradictionPenalty: number;
+  finalScore: number;
+}
+
+export interface AgentTraceEntry {
+  agent: string;
+  action: string;
+  detail?: string;
+  durationMs: number;
+  meta?: Record<string, unknown>;
+}
+
+export interface Scratchpad {
+  originalQuery: string;
+  subQueries: string[];
+  expandedQueries: string[];
+  retrievedChunks: RetrievedChunk[];
+  claimGraph?: ClaimGraph;
+  evidenceChain: string[];
+  contradictions: Contradiction[];
+  iteration: number;
+  maxIterations: number;
+  confidenceThreshold: number;
+  trace: AgentTraceEntry[];
+}
+
+export interface AgentRunResult {
+  answer: string;
+  confidence: number;
+  reasoningPath: string;
+  sources: string[];
+  claimGraph: ClaimGraph;
+  contradictions: Contradiction[];
+  evidenceChain: string[];
+  agentTrace: AgentTraceEntry[];
+  retrievedChunks: RetrievedChunk[];
+  latencyMs: number;
+}
+
+export function newScratchpad(query: string): Scratchpad {
+  return {
+    originalQuery: query,
+    subQueries: [],
+    expandedQueries: [],
+    retrievedChunks: [],
+    evidenceChain: [],
+    contradictions: [],
+    iteration: 0,
+    maxIterations: Number(process.env.AGENT_MAX_ITERATIONS ?? 2),
+    confidenceThreshold: Number(process.env.AGENT_CONFIDENCE_THRESHOLD ?? 0.55),
+    trace: [],
+  };
+}
+
+export async function timed<T>(
+  scratchpad: Scratchpad,
+  agent: string,
+  action: string,
+  fn: () => Promise<T>,
+  detail?: string,
+  meta?: Record<string, unknown>,
+): Promise<T> {
+  const start = Date.now();
+  try {
+    const out = await fn();
+    scratchpad.trace.push({ agent, action, detail, durationMs: Date.now() - start, meta });
+    return out;
+  } catch (err) {
+    scratchpad.trace.push({
+      agent,
+      action,
+      detail: `error: ${(err as Error)?.message ?? String(err)}`,
+      durationMs: Date.now() - start,
+      meta,
+    });
+    throw err;
+  }
+}

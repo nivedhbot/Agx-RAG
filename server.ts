@@ -3,7 +3,6 @@ import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
-import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import * as dotenv from 'dotenv';
 
@@ -15,15 +14,16 @@ import { vectorStore } from './backend/vectorStore.js';
 import { graphBuilder } from './backend/graphBuilder.js';
 import { ragPipeline } from './backend/ragPipeline.js';
 import { llmGenerator } from './backend/llmGenerator.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { orchestratorAgent } from './backend/agents/orchestrator.js';
+import { settings } from './backend/settings.js';
+import { metrics } from './backend/metrics.js';
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   // Load persistent data
+  await settings.load();
   await vectorStore.load();
   await graphBuilder.load();
 
@@ -38,15 +38,34 @@ async function startServer() {
 
   // TASK 1: Health Check
   app.get('/api/health', (req, res) => {
-    res.json({ 
-      status: 'ok', 
-      service: 'AGX-RAG Multi-Agent System',
+    const llmHigh = process.env.OPENAI_API_KEY
+      ? 'OpenAI'
+      : process.env.NVIDIA_API_KEY
+        ? 'NVIDIA NIM'
+        : process.env.OLLAMA_ENABLED === 'true'
+          ? 'Ollama'
+          : 'Mock';
+    const llmLow = process.env.NVIDIA_API_KEY
+      ? 'NVIDIA NIM'
+      : process.env.OLLAMA_ENABLED === 'true'
+        ? 'Ollama'
+        : process.env.OPENAI_API_KEY
+          ? 'OpenAI'
+          : 'Mock';
+    const backend = vectorStore.backendName();
+    res.json({
+      status: 'ok',
+      service: 'AGX-RAG CGoT-MARS',
       modules: {
-        vector: 'Loaded',
+        vector: backend === 'postgres' ? 'Postgres (pgvector)' : backend === 'json' ? 'JSON file' : 'Loaded',
         graph: 'Active',
         reranker: 'Hybrid-F(d)',
-        llm: process.env.OPENAI_API_KEY ? 'OpenAI' : (process.env.GEMINI_API_KEY ? 'Gemini' : 'Mock')
-      }
+        agents: 'Orchestrator + 4 specialists',
+        nli: process.env.LOCAL_NLI_ENABLED === 'false' ? 'Heuristic' : 'Local (deberta-v3-xsmall)',
+        llmHigh,
+        llmLow,
+      },
+      vectorBackend: backend,
     });
   });
 
@@ -59,54 +78,113 @@ async function startServer() {
 
       console.log(`Processing file: ${req.file.originalname}`);
       const rawChunks = await processPdf(req.file.buffer, req.file.originalname);
-      
-      // Add to vector store (TASK 3)
-      const processedChunks = await vectorStore.addChunks(rawChunks);
-      
-      // Update graph (TASK 4)
-      await graphBuilder.updateGraph(processedChunks);
 
-      res.json({ 
-        message: 'Upload successful', 
+      const processedChunks = await vectorStore.addChunks(rawChunks);
+      await graphBuilder.updateGraph(processedChunks);
+      metrics.recordUpload(req.file.originalname, rawChunks.length);
+
+      res.json({
+        message: 'Upload successful',
         document: {
           name: req.file.originalname,
           chunks: rawChunks.length,
-          status: 'Processed'
+          status: 'Processed',
         },
-        chunkCount: rawChunks.length 
+        chunkCount: rawChunks.length,
       });
     } catch (error: any) {
       console.error('Upload error:', error);
+      metrics.log('error', `upload failed: ${error.message}`);
       res.status(500).json({ error: error.message });
     }
   });
 
-  // TASK 5 & 6: Query (Hybrid Search + LLM Generation)
+  // Query — CGoT-MARS multi-agent pipeline.
+  // Set toggles.useAgentPipeline=false (via /api/settings) to fall back to the
+  // legacy single-pass pipeline.
   app.post('/api/query', async (req, res) => {
     const { query } = req.body;
     if (!query) return res.status(400).json({ error: 'Query is required' });
 
     console.log(`Processing query: ${query}`);
     const startTime = Date.now();
+    const useAgents = settings.get().toggles.useAgentPipeline;
 
     try {
-      // 1. Hybrid Pipeline (TASK 5)
+      if (useAgents) {
+        const result = await orchestratorAgent.run(query);
+        metrics.recordQuery({
+          latencyMs: Date.now() - startTime,
+          confidence: result.confidence,
+          contradictions: result.contradictions.length,
+          agentSteps: result.agentTrace.length,
+        });
+
+        // Build top-chunks panel: prefer evidence-chain order, fall back to
+        // retrieval order so the UI still has chunks when the chain is empty.
+        const chunkById = new Map(result.retrievedChunks.map(c => [c.id, c]));
+        const orderedIds: string[] = [];
+        for (const claimId of result.evidenceChain) {
+          const claim = result.claimGraph.nodes.find(n => n.id === claimId);
+          if (claim && claim.sourceChunkId && !orderedIds.includes(claim.sourceChunkId)) {
+            orderedIds.push(claim.sourceChunkId);
+          }
+        }
+        for (const c of result.retrievedChunks) {
+          if (!orderedIds.includes(c.id)) orderedIds.push(c.id);
+        }
+        const topChunks = orderedIds.slice(0, 5).map(id => {
+          const c = chunkById.get(id);
+          if (!c) return { id, text: '', source: '', score: 0, semanticScore: 0, graphScore: 0, relationalScore: 0, contradictionPenalty: 0, isContradiction: false };
+          return {
+            id: c.id,
+            text: c.text,
+            source: c.source,
+            score: c.finalScore,
+            semanticScore: c.score,
+            graphScore: c.graphScore,
+            relationalScore: c.relationalScore,
+            contradictionPenalty: c.contradictionPenalty,
+            isContradiction: c.contradictionPenalty > 0,
+          };
+        });
+
+        const knowledgeGraph = graphBuilder.getQuerySubgraph(
+          query,
+          topChunks.map(c => ({ id: c.id, text: c.text ?? '', source: c.source ?? '' })),
+        );
+
+        res.json({
+          answer: result.answer,
+          confidence: result.confidence,
+          latency: `${Date.now() - startTime}ms`,
+          sources: result.sources,
+          reasoningPath: result.reasoningPath,
+          knowledgeGraph,
+          claimGraph: result.claimGraph,
+          contradictions: result.contradictions,
+          evidenceChain: result.evidenceChain,
+          agentTrace: result.agentTrace,
+          topChunks,
+        });
+        return;
+      }
+
+      // Legacy path.
       const reRankedResults = await ragPipeline.process(query, 20);
       const topChunks = reRankedResults.slice(0, 5);
-
-      // 2. LLM Generation (TASK 6)
-      // We pass the top 5 chunks for context
       const generation = await llmGenerator.generate(query, topChunks);
-
-      // 3. Evidence-chain subgraph for FR7 explainability
       const knowledgeGraph = graphBuilder.getQuerySubgraph(query, topChunks);
-
-      const latency = `${Date.now() - startTime}ms`;
-
+      metrics.recordQuery({
+        latencyMs: Date.now() - startTime,
+        confidence: generation.confidence,
+        contradictions: 0,
+        agentSteps: 0,
+      });
       res.json({
         answer: generation.answer,
         confidence: generation.confidence,
-        latency,
+        latency: `${Date.now() - startTime}ms`,
         sources: generation.sources,
         reasoningPath: generation.reasoningPath,
         knowledgeGraph,
@@ -119,8 +197,8 @@ async function startServer() {
           graphScore: r.graphScore,
           relationalScore: r.relationalScore,
           contradictionPenalty: r.contradictionPenalty,
-          isContradiction: r.contradictionPenalty > 0
-        }))
+          isContradiction: r.contradictionPenalty > 0,
+        })),
       });
     } catch (error: any) {
       console.error('Query error:', error);
@@ -157,7 +235,28 @@ async function startServer() {
   app.post('/api/clear', async (req, res) => {
     await vectorStore.clear();
     await graphBuilder.clear();
+    metrics.log('warn', 'corpus cleared');
     res.json({ message: 'Corpus and Graph cleared' });
+  });
+
+  // Configuration: read + write app settings.
+  app.get('/api/settings', (_req, res) => {
+    res.json(settings.get());
+  });
+  app.post('/api/settings', async (req, res) => {
+    try {
+      const next = await settings.update(req.body ?? {});
+      res.json(next);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Real telemetry: corpus + graph + query stats + recent logs.
+  app.get('/api/health/metrics', (_req, res) => {
+    const corpusChunks = vectorStore.getAllChunks().length;
+    const graphExport = graphBuilder.exportFull();
+    res.json(metrics.snapshot(corpusChunks, graphExport.node_count, graphExport.edge_count));
   });
 
   // --- Vite / Static Handling ---

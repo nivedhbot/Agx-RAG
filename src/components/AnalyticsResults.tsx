@@ -11,10 +11,10 @@ import {
   PieChart,
   Pie
 } from 'recharts';
-import { 
-  Cpu, 
-  Cloud, 
-  LayoutDashboard, 
+import {
+  Cpu,
+  Cloud,
+  LayoutDashboard,
   Menu,
   ChevronRight,
   ArrowLeft,
@@ -23,6 +23,8 @@ import {
   Network,
   Settings,
 } from './SwissUI';
+import { AgentTrace } from './AgentTrace';
+import { ClaimGraphPanel } from './ClaimGraphPanel';
 
 type KGNode = { id: string; label: string; type: string; confidence: number; centrality: number };
 type KGEdge = { id: string; source: string; target: string; label: string; weight: number };
@@ -275,6 +277,63 @@ export default function AnalyticsResults({ queryData }: {
             <KnowledgeGraphPanel graph={data.knowledgeGraph} />
           </div>
         </div>
+
+        {/* Contrastive Claim Graph + Agent Trace */}
+        {(data.claimGraph || data.agentTrace) && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 md:gap-12 mb-16">
+            <div className="lg:col-span-7">
+              <span className="label-bold mb-4 block text-xs">
+                07b. CONTRASTIVE_CLAIM_GRAPH
+                {data.contradictions?.length > 0 && (
+                  <span className="ml-3 px-2 py-1 bg-red-600 text-white text-[9px]">
+                    {data.contradictions.length} CONFLICT{data.contradictions.length > 1 ? 'S' : ''}
+                  </span>
+                )}
+              </span>
+              <ClaimGraphPanel
+                graph={data.claimGraph}
+                contradictionsCount={data.contradictions?.length ?? 0}
+              />
+            </div>
+            <div className="lg:col-span-5">
+              <span className="label-bold mb-4 block text-xs">07c. AGENT_EXECUTION_TRACE</span>
+              <AgentTrace trace={data.agentTrace} />
+            </div>
+          </div>
+        )}
+
+        {/* Contradictions detail */}
+        {data.contradictions?.length > 0 && (
+          <section className="mb-16">
+            <span className="label-bold mb-6 block text-xs text-red-700">
+              07d. DETECTED_CONTRADICTIONS ({data.contradictions.length})
+            </span>
+            <div className="space-y-3">
+              {data.contradictions.map((c: any, i: number) => {
+                const findClaim = (id: string) => data.claimGraph?.nodes.find((n: any) => n.id === id);
+                const a = findClaim(c.claimA);
+                const b = findClaim(c.claimB);
+                return (
+                  <div key={i} className="border-l-thick border-red-600 bg-red-50 p-4">
+                    <div className="label-bold text-[9px] tracking-widest text-red-700 mb-2">
+                      CONFLICT #{i + 1} · {c.explanation}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
+                      <div className="bg-white p-3 border border-foreground/10">
+                        <div className="label-bold text-[8px] opacity-50 mb-1">{a?.source ?? '?'}</div>
+                        <p className="uppercase tracking-tight">{a?.text ?? c.claimA}</p>
+                      </div>
+                      <div className="bg-white p-3 border border-foreground/10">
+                        <div className="label-bold text-[8px] opacity-50 mb-1">{b?.source ?? '?'}</div>
+                        <p className="uppercase tracking-tight">{b?.text ?? c.claimB}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         {/* Evidence */}
         <section className="mb-16">

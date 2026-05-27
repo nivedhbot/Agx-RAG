@@ -2,6 +2,7 @@ import { MultiDirectedGraph } from 'graphology';
 import nlp from 'compromise';
 import fs from 'fs-extra';
 import path from 'path';
+import { pipeline } from '@huggingface/transformers';
 
 interface Chunk {
   text: string;
@@ -18,6 +19,8 @@ interface Chunk {
 export class GraphBuilder {
   private graph: MultiDirectedGraph;
   private readonly graphPath = path.join(process.cwd(), 'vectorstore', 'persistent_graph.json');
+  private nerPipeline: any = null;
+  private nerInitPromise: Promise<any> | null = null;
 
   constructor() {
     this.graph = new MultiDirectedGraph();
@@ -28,6 +31,46 @@ export class GraphBuilder {
     await fs.ensureDir(path.join(process.cwd(), 'vectorstore'));
   }
 
+  private useBertNer(): boolean {
+    return process.env.USE_BERT_NER === 'true';
+  }
+
+  private async getNer() {
+    if (this.nerPipeline) return this.nerPipeline;
+    if (!this.nerInitPromise) {
+      const model = process.env.BERT_NER_MODEL ?? 'Xenova/bert-base-NER';
+      this.nerInitPromise = (async () => {
+        console.log(`Initializing BERT NER model (${model})...`);
+        this.nerPipeline = await pipeline('token-classification', model);
+        return this.nerPipeline;
+      })();
+    }
+    return this.nerInitPromise;
+  }
+
+  // Returns lowercase, deduped entities. Bert path merges WordPiece tokens by
+  // their IOB tags. Compromise path is the original behaviour.
+  private async extractEntities(text: string): Promise<string[]> {
+    if (this.useBertNer()) {
+      try {
+        const ner = await this.getNer();
+        const tokens: any[] = await ner(text);
+        const merged = mergeBertTokens(tokens);
+        return uniqueLower(merged);
+      } catch (err) {
+        console.warn('[ner] BERT failed, falling back to compromise:', (err as Error).message);
+      }
+    }
+    const doc = nlp(text);
+    const entities = [
+      ...doc.organizations().out('array'),
+      ...doc.people().out('array'),
+      ...doc.places().out('array'),
+      ...doc.topics().out('array'),
+    ];
+    return uniqueLower(entities);
+  }
+
   /**
    * Update graph with new chunks.
    * Extracts entities and creates edges [Entity] -> [Chunk]
@@ -36,31 +79,15 @@ export class GraphBuilder {
     for (const chunk of chunks) {
       if (!chunk.id) continue;
 
-      // Add chunk node
       if (!this.graph.hasNode(chunk.id)) {
         this.graph.addNode(chunk.id, { type: 'chunk', text: chunk.text, source: chunk.source });
       }
 
-      // Extract entities
-      const doc = nlp(chunk.text);
-      const entities = [
-        ...doc.organizations().out('array'),
-        ...doc.people().out('array'),
-        ...doc.places().out('array'),
-        ...doc.topics().out('array')
-      ];
-
-      // Remove duplicates and clean
-      const uniqueEntities = [...new Set(entities.map(e => e.toLowerCase().trim()))].filter(e => e.length > 2);
-
-      for (const entity of uniqueEntities) {
-        // Add entity node
+      const entities = (await this.extractEntities(chunk.text)).filter(e => e.length > 2);
+      for (const entity of entities) {
         if (!this.graph.hasNode(entity)) {
           this.graph.addNode(entity, { type: 'entity' });
         }
-
-        // Add edge Entity -> Chunk (Entity is contained in Chunk)
-        // We use a MultiGraph because multiple chunks can contain the same entity
         this.graph.addDirectedEdge(entity, chunk.id);
       }
     }
@@ -255,3 +282,41 @@ export class GraphBuilder {
 }
 
 export const graphBuilder = new GraphBuilder();
+
+// Merge IOB-tagged WordPiece tokens (B-PER, I-PER, ...) back into entity spans.
+function mergeBertTokens(tokens: any[]): string[] {
+  const out: string[] = [];
+  let current: { type: string; word: string } | null = null;
+  for (const tok of tokens) {
+    const entityType: string = (tok.entity ?? tok.entity_group ?? '').toString();
+    const word: string = (tok.word ?? '').toString();
+    if (!entityType || entityType === 'O') {
+      if (current) {
+        out.push(current.word);
+        current = null;
+      }
+      continue;
+    }
+    const type = entityType.replace(/^[BI]-/, '');
+    const isContinuation = word.startsWith('##');
+    const piece = isContinuation ? word.slice(2) : word;
+    if (current && current.type === type && (isContinuation || entityType.startsWith('I-'))) {
+      current.word = isContinuation ? current.word + piece : `${current.word} ${piece}`;
+    } else {
+      if (current) out.push(current.word);
+      current = { type, word: piece };
+    }
+  }
+  if (current) out.push(current.word);
+  return out;
+}
+
+function uniqueLower(entities: string[]): string[] {
+  return [
+    ...new Set(
+      entities
+        .map(e => e.toLowerCase().trim())
+        .filter(e => e.length > 0 && !/^[\W_]+$/.test(e)),
+    ),
+  ];
+}
