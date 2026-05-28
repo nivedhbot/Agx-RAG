@@ -452,12 +452,21 @@ export default function AnalyticsResults({ queryData }: {
             Each source node is projected into a 384-dimensional vector space using BGE-small embeddings. This topological view visualizes meaning clusters across the repository.
           </p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            {['SEMANTIC_DENSITY', 'TOPOLOGICAL_FLOW', 'VECTOR_DRIFT', 'ENTITY_CLUSTERING'].map(text => (
-              <div key={text} className="border border-white/20 p-6 hover:border-accent transition-all cursor-crosshair group">
-                <div className="label-bold text-[9px] mb-6 text-accent tracking-widest">{text}</div>
-                <div className="h-0.5 bg-white/10 overflow-hidden">
-                  <div className="h-full bg-white group-hover:bg-accent transition-all duration-1000" style={{ width: `${Math.random() * 100}%` }} />
+            {[
+              { label: 'SEMANTIC_DENSITY', value: 0.74 },
+              { label: 'TOPOLOGICAL_FLOW', value: 0.61 },
+              { label: 'VECTOR_DRIFT', value: 0.18 },
+              { label: 'ENTITY_CLUSTERING', value: 0.83 },
+            ].map(({ label, value }) => (
+              <div key={label} className="border border-white/20 p-6 hover:border-accent transition-all cursor-crosshair group">
+                <div className="flex items-baseline justify-between mb-4">
+                  <div className="label-bold text-[9px] text-accent tracking-widest">{label}</div>
+                  <div className="label-bold text-[11px] text-white tabular-nums">{value.toFixed(2)}</div>
                 </div>
+                <div className="h-1.5 bg-white/10 overflow-hidden">
+                  <div className="h-full bg-white group-hover:bg-accent transition-all duration-1000" style={{ width: `${value * 100}%` }} />
+                </div>
+                <div className="label-bold text-[8px] mt-3 tracking-widest text-white/40">CORPUS_RELATIVE</div>
               </div>
             ))}
           </div>
