@@ -25,6 +25,7 @@ import {
 } from './SwissUI';
 import { AgentTrace } from './AgentTrace';
 import { ClaimGraphPanel } from './ClaimGraphPanel';
+import EntityGraphPanel from './EntityGraphPanel';
 
 type KGNode = { id: string; label: string; type: string; confidence: number; centrality: number };
 type KGEdge = { id: string; source: string; target: string; label: string; weight: number };
@@ -480,6 +481,15 @@ export default function AnalyticsResults({ queryData }: {
               </div>
             ))}
           </div>
+        </section>
+
+        <section>
+          <span className="label-bold text-accent mb-2 block">02. ENTITY_GRAPH</span>
+          <h2 className="headline-lg text-4xl mb-4">Knowledge_Graph_Topology</h2>
+          <p className="text-on-surface-variant max-w-xl label-bold text-xs uppercase tracking-wider mb-8">
+            Interactive node-link projection of extracted entities. Edges link entities co-mentioned across the same source chunks.
+          </p>
+          <EntityGraphPanel />
         </section>
       </div>
     );
