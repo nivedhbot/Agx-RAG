@@ -56,6 +56,16 @@ export default function ChatDashboard({ onShowAnalysis }: {
 
       const data = await res.json();
 
+      const traversedEntities = (data.knowledgeGraph?.nodes ?? [])
+        .filter((n: any) => n.type === 'entity' || n.type === 'query_entity')
+        .map((n: any) => n.id);
+      try {
+        sessionStorage.setItem('agx_reasoning_entity_ids', JSON.stringify(traversedEntities));
+        sessionStorage.setItem('agx_reasoning_query', currentQuery);
+      } catch {
+        /* sessionStorage unavailable — highlighting will simply not engage */
+      }
+
       setMessages(prev => {
         const last = prev[prev.length - 1];
         return [...prev.slice(0, -1), {

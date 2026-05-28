@@ -18,6 +18,9 @@ export default function EntityGraphPanel() {
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoverEdge, setHoverEdge] = useState<{ id: string; x: number; y: number; label: string } | null>(null);
+  const [reasoningIds, setReasoningIds] = useState<Set<string>>(new Set());
+  const [reasoningQuery, setReasoningQuery] = useState<string | null>(null);
+  const [highlightOn, setHighlightOn] = useState(true);
 
   useEffect(() => {
     fetch('/api/graph')
@@ -26,7 +29,21 @@ export default function EntityGraphPanel() {
       .catch(err => setError(err.message));
   }, []);
 
-  const projection = useMemo(() => projectEntityGraph(raw), [raw]);
+  useEffect(() => {
+    try {
+      const ids = sessionStorage.getItem('agx_reasoning_entity_ids');
+      const q = sessionStorage.getItem('agx_reasoning_query');
+      if (ids) setReasoningIds(new Set(JSON.parse(ids)));
+      if (q) setReasoningQuery(q);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const hasReasoning = reasoningIds.size > 0;
+  const highlightActive = highlightOn && hasReasoning;
+
+  const projection = useMemo(() => projectEntityGraph(raw, reasoningIds), [raw, reasoningIds]);
   const chunkLabelById = useMemo(() => {
     const map = new Map<string, string>();
     raw?.nodes.forEach(n => {
@@ -79,6 +96,27 @@ export default function EntityGraphPanel() {
 
   return (
     <PanelShell>
+      <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-foreground/10 bg-surface flex-wrap">
+        <div className="label-bold text-[10px] tracking-widest opacity-60">
+          {hasReasoning
+            ? `LAST_QUERY · ${truncate(reasoningQuery ?? '', 48)}`
+            : 'NO_QUERY_YET · RUN_A_REASONING_LAB_QUERY_TO_HIGHLIGHT_PATH'}
+        </div>
+        <button
+          type="button"
+          disabled={!hasReasoning}
+          onClick={() => setHighlightOn(v => !v)}
+          className={`label-bold text-[10px] tracking-[0.2em] px-4 py-2 border-thick border-foreground transition-colors ${
+            !hasReasoning
+              ? 'bg-foreground/10 text-foreground/40 cursor-not-allowed'
+              : highlightActive
+                ? 'bg-accent text-white'
+                : 'bg-surface text-foreground hover:bg-foreground hover:text-background'
+          }`}
+        >
+          {highlightActive ? 'HIDE_REASONING_PATH' : 'SHOW_REASONING_PATH'}
+        </button>
+      </div>
       <div className="flex flex-col lg:flex-row gap-0">
         <div className="flex-1 relative bg-muted-background grid-bg border-r-0 lg:border-r border-foreground/10 min-h-[520px]">
           {trimmed && (
@@ -119,9 +157,13 @@ export default function EntityGraphPanel() {
                 const p = positions.get(node.id);
                 if (!p) return null;
                 const ratio = node.centrality / maxCentrality;
-                const r = 5 + ratio * 14;
+                const baseRadius = 5 + ratio * 14;
+                const isOnPath = highlightActive && reasoningIds.has(node.id);
+                const r = isOnPath ? baseRadius + 3 : baseRadius;
                 const fill = ratio > 0.5 ? HIGH_COLOR : LOW_COLOR;
                 const isSelected = selectedId === node.id;
+                const stroke = isOnPath ? HIGH_COLOR : isSelected ? HIGH_COLOR : '#1C1410';
+                const strokeWidth = isOnPath ? 3 : isSelected ? 3 : 1;
                 return (
                   <g
                     key={node.id}
@@ -133,10 +175,10 @@ export default function EntityGraphPanel() {
                       cy={p.y}
                       r={r}
                       fill={fill}
-                      stroke={isSelected ? HIGH_COLOR : '#1C1410'}
-                      strokeWidth={isSelected ? 3 : 1}
+                      stroke={stroke}
+                      strokeWidth={strokeWidth}
                     />
-                    {ratio > 0.35 && (
+                    {(ratio > 0.35 || isOnPath) && (
                       <text
                         x={p.x}
                         y={p.y + r + 10}
@@ -144,7 +186,7 @@ export default function EntityGraphPanel() {
                         fontFamily="Inter, Arial, sans-serif"
                         fontSize={9}
                         fontWeight={700}
-                        fill="#1C1410"
+                        fill={isOnPath ? HIGH_COLOR : '#1C1410'}
                         style={{ letterSpacing: '0.05em', textTransform: 'uppercase', pointerEvents: 'none' }}
                       >
                         {truncate(node.id, 16)}
@@ -189,6 +231,12 @@ export default function EntityGraphPanel() {
               <div className="w-3 h-3 rounded-full" style={{ background: LOW_COLOR, border: '1px solid #1C1410' }} />
               <span className="label-bold text-[8px] tracking-widest">LOW_CENTRALITY</span>
             </div>
+            {highlightActive && (
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 rounded-full bg-white" style={{ border: `3px solid ${HIGH_COLOR}` }} />
+                <span className="label-bold text-[8px] tracking-widest">REASONING_PATH</span>
+              </div>
+            )}
           </div>
 
           <div className="absolute bottom-4 right-4 bg-foreground text-background px-3 py-2 label-bold text-[9px] tracking-widest">
@@ -262,7 +310,7 @@ function truncate(s: string, n: number) {
   return s.length > n ? s.substring(0, n - 1) + '…' : s;
 }
 
-function projectEntityGraph(raw: RawGraph | null) {
+function projectEntityGraph(raw: RawGraph | null, reasoningIds: Set<string> = new Set()) {
   if (!raw) return null;
 
   const entityChunks = new Map<string, Set<string>>();
@@ -285,7 +333,12 @@ function projectEntityGraph(raw: RawGraph | null) {
   entries.sort((a, b) => b.centrality - a.centrality);
 
   const trimmed = totalEntities > TRIM_THRESHOLD;
-  if (trimmed) entries = entries.slice(0, MAX_RENDERED);
+  if (trimmed) {
+    const top = entries.slice(0, MAX_RENDERED);
+    const keptIdSet = new Set(top.map(e => e.id));
+    const reasoningExtras = entries.filter(e => reasoningIds.has(e.id) && !keptIdSet.has(e.id));
+    entries = [...top, ...reasoningExtras];
+  }
 
   const keptIds = new Set(entries.map(e => e.id));
   const chunkToEntities = new Map<string, string[]>();
