@@ -192,6 +192,7 @@ export default function AnalyticsResults({ queryData }: {
   queryData?: any
 }) {
   const [corpusStats, setCorpusStats] = React.useState<any[]>([]);
+  const [graphMetrics, setGraphMetrics] = React.useState<{ graphNodes: number; graphEdges: number } | null>(null);
 
   React.useEffect(() => {
     fetch('/api/documents')
@@ -199,6 +200,15 @@ export default function AnalyticsResults({ queryData }: {
       .then(data => {
         setCorpusStats(data);
       });
+  }, []);
+
+  React.useEffect(() => {
+    fetch('/api/health/metrics')
+      .then(res => (res.ok ? res.json() : null))
+      .then(json => {
+        if (json) setGraphMetrics({ graphNodes: json.graphNodes ?? 0, graphEdges: json.graphEdges ?? 0 });
+      })
+      .catch(() => {});
   }, []);
 
   const chartData = useMemo(() => {
@@ -380,9 +390,9 @@ export default function AnalyticsResults({ queryData }: {
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
             {[
-              { label: 'TOTAL_STORAGE', val: `${corpusStats.length} NODES` },
+              { label: 'SOURCE_DOCUMENTS', val: `${corpusStats.length} DOCS` },
               { label: 'TOKEN_VOLUME', val: `${corpusStats.reduce((a, b) => a + (b.chunks || 0), 0) * 300} TKN` },
-              { label: 'GRAPH_EDGES', val: '2.84M CONN' },
+              { label: 'GRAPH_EDGES', val: `${graphMetrics?.graphEdges ?? 0} EDGES` },
             ].map((stat, i) => (
               <div key={i} className="border-thick border-foreground p-8 bg-surface grid-bg relative overflow-hidden group">
                 <div className="absolute top-0 right-0 w-16 h-16 bg-foreground text-white flex items-center justify-center opacity-5 group-hover:opacity-100 transition-opacity">
