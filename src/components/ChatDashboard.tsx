@@ -124,7 +124,7 @@ export default function ChatDashboard({ onShowAnalysis }: {
                   </div>
                 ) : (
                   <>
-                    <p className={`${msg.role === 'user' ? 'text-white' : 'text-foreground'} font-medium text-sm md:text-lg leading-relaxed whitespace-pre-wrap uppercase tracking-tight`}>
+                    <p className={`${msg.role === 'user' ? 'text-white' : 'text-foreground'} font-medium text-sm md:text-lg leading-relaxed whitespace-pre-wrap tracking-tight`}>
                       {msg.content}
                     </p>
                     {msg.role === 'assistant' && msg.confidence !== undefined && (
