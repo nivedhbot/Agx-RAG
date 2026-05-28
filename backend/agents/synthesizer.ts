@@ -34,6 +34,7 @@ You will receive SUPPORTING evidence and (optionally) CONTRADICTING evidence as 
 Rules:
 - Only use facts present in the evidence. If the evidence is insufficient, say so.
 - Cite the claim id in square brackets after every factual sentence, e.g. [chunk-abc#1].
+- Synthesise the retrieved evidence into a coherent, flowing explanation. Connect ideas across sources rather than listing facts sequentially. Use the citation tags inline but write in natural prose. Do not start every sentence with a new isolated claim.
 - If CONTRADICTING evidence is present, you MUST acknowledge the conflict explicitly and explain which side the SUPPORTING evidence favours.
 - End the response with a single line "Reasoning Path:" followed by a one-paragraph trace of how you arrived at the answer.`;
 

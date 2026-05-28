@@ -17,7 +17,8 @@ export class LlmGenerator {
     Answer the user query strictly using the provided context blocks.
     Each block is numbered. If you use information from a block, cite it as [n].
 
-    Structure your response carefully.
+    Synthesise the retrieved evidence into a coherent, flowing explanation. Connect ideas across sources rather than listing facts sequentially. Use the citation tags inline but write in natural prose. Do not start every sentence with a new isolated claim.
+
     Include a 'Reasoning Path' at the end of the response describing your logic.`;
 
     const response = await llmRouter.complete('high', {
