@@ -117,9 +117,9 @@ export default function SystemHealth() {
             <span className="text-accent">LIVE_FEED</span>
           </h3>
           <div className="h-[300px] w-full min-h-[300px]">
-            {data.series.length === 0 ? (
-              <div className="flex items-center justify-center h-full opacity-40 label-bold text-[10px] tracking-widest uppercase">
-                NO_QUERIES_YET
+            {data.series.length < 3 ? (
+              <div className="flex items-center justify-center h-full opacity-40 label-bold text-[10px] tracking-widest uppercase text-center px-4">
+                INSUFFICIENT_DATA — RUN QUERIES TO POPULATE
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%" minHeight={300}>
