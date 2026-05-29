@@ -162,18 +162,19 @@ export default function SessionSidebar({ activeSessionId, onSelect, onNew, reloa
                           <div className="flex items-center justify-between gap-2">
                             <span className="flex items-center gap-1 truncate">
                               <FileText size={10} className="shrink-0 opacity-50" />
-                              <span className="truncate">{d.filename}</span>
+                              {/* filename (N chunks) — confirms what's stored in
+                                  this session and how many chunks it produced. */}
+                              <span className="truncate">
+                                {d.filename} <span className="opacity-50">({d.chunk_count} chunks)</span>
+                              </span>
                             </span>
-                            <span className="flex items-center gap-1.5 shrink-0">
-                              <span className="opacity-50">{d.chunk_count} CH</span>
-                              <button
-                                onClick={() => setConfirmDocId(d.id)}
-                                title={`Delete ${d.filename}`}
-                                className="opacity-40 hover:opacity-100 hover:text-accent transition-opacity"
-                              >
-                                <Trash2 size={11} />
-                              </button>
-                            </span>
+                            <button
+                              onClick={() => setConfirmDocId(d.id)}
+                              title={`Delete ${d.filename}`}
+                              className="shrink-0 opacity-40 hover:opacity-100 hover:text-accent transition-opacity"
+                            >
+                              <Trash2 size={11} />
+                            </button>
                           </div>
 
                           {/* Inline confirmation: DELETE {filename}? — CANCEL / CONFIRM */}

@@ -166,7 +166,7 @@ async function startServer() {
       const rawChunks = await processPdf(req.file.buffer, req.file.originalname);
 
       const processedChunks = await vectorStore.addChunks(rawChunks, sessionId);
-      await graphBuilder.updateGraph(processedChunks, sessionId);
+      const { entitiesExtracted } = await graphBuilder.updateGraph(processedChunks, sessionId);
       metrics.recordUpload(req.file.originalname, rawChunks.length);
 
       // Record the document against the session and report the session graph's
@@ -194,6 +194,7 @@ async function startServer() {
         chunkCount: rawChunks.length,
         nodeCount: graphStats.node_count,
         edgeCount: graphStats.edge_count,
+        entitiesExtracted,
       });
     } catch (error: any) {
       console.error('Upload error:', error);

@@ -48,6 +48,7 @@ export default function ChatDashboard({ onShowAnalysis, query, setQuery, message
 
   // Documents belonging to the active session, plus upload + toast state.
   const [sessionDocuments, setSessionDocuments] = useState<SessionDocument[]>([]);
+  const [sessionName, setSessionName] = useState<string>('');
   const [uploading, setUploading] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -56,6 +57,7 @@ export default function ChatDashboard({ onShowAnalysis, query, setQuery, message
   useEffect(() => {
     if (!activeSessionId) {
       setSessionDocuments([]);
+      setSessionName('');
       return;
     }
     let cancelled = false;
@@ -64,7 +66,10 @@ export default function ChatDashboard({ onShowAnalysis, query, setQuery, message
         const res = await authFetch(`/api/sessions/${activeSessionId}`);
         if (!res.ok) return;
         const data = await res.json();
-        if (!cancelled) setSessionDocuments(data.documents || []);
+        if (!cancelled) {
+          setSessionDocuments(data.documents || []);
+          setSessionName(data.session?.title || '');
+        }
       } catch {
         /* ignore — leave existing list */
       }
@@ -72,10 +77,14 @@ export default function ChatDashboard({ onShowAnalysis, query, setQuery, message
     return () => { cancelled = true; };
   }, [activeSessionId, sessionReloadSignal]);
 
-  // Upload a PDF into the active session, then surface the merge toast.
+  // Upload a PDF into the active session. Surfaces a "to THIS session" progress
+  // toast, then a confirmation with the chunk + entity counts so the user knows
+  // the document landed in this session and not a global store.
   const handleUpload = async (file: File) => {
     if (!activeSessionId) return;
     setUploading(true);
+    const target = sessionName || 'THIS_SESSION';
+    setToast(`UPLOADING — ${file.name} to ${target}...`);
     try {
       const form = new FormData();
       form.append('file', file);
@@ -83,7 +92,7 @@ export default function ChatDashboard({ onShowAnalysis, query, setQuery, message
       const res = await authFetch('/api/upload', { method: 'POST', body: form });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-      setToast(`DOCUMENT_ADDED — GRAPH_UPDATED · +${data.chunkCount} CHUNKS · ${data.nodeCount} NODES`);
+      setToast(`ADDED — ${data.chunkCount} chunks, ${data.entitiesExtracted} entities extracted`);
       window.setTimeout(() => setToast(null), 4000);
       bumpSessionReload(); // refresh doc list + session counts
     } catch (err: any) {

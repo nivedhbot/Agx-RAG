@@ -120,9 +120,13 @@ export class GraphBuilder {
    * Update graph with new chunks.
    * Extracts entities and creates edges [Entity] -> [Chunk]
    */
-  async updateGraph(chunks: Chunk[], sessionId?: string) {
+  async updateGraph(chunks: Chunk[], sessionId?: string): Promise<{ entitiesExtracted: number }> {
     await this.ensureLoaded(sessionId);
     const graph = this.graphFor(sessionId);
+
+    // Distinct entities mentioned in THIS upload's chunks — reported back so the
+    // caller can confirm "N entities extracted" for this specific document.
+    const extracted = new Set<string>();
 
     for (const chunk of chunks) {
       if (!chunk.id) continue;
@@ -133,6 +137,7 @@ export class GraphBuilder {
 
       const entities = (await this.extractEntities(chunk.text)).filter(e => e.length > 2);
       for (const entity of entities) {
+        extracted.add(entity);
         if (!graph.hasNode(entity)) {
           graph.addNode(entity, { type: 'entity' });
         }
@@ -141,6 +146,7 @@ export class GraphBuilder {
     }
 
     await this.save(sessionId);
+    return { entitiesExtracted: extracted.size };
   }
 
   /**
