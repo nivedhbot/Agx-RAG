@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { authFetch } from '../lib/api';
 
-type RawNode = { id: string; label: string; type: string; centrality: number; confidence: number };
+type RawNode = { id: string; label: string; type: string; source?: string | null; centrality: number; confidence: number };
 type RawEdge = { id: string; source: string; target: string; label: string; weight: number };
 type RawGraph = { nodes: RawNode[]; edges: RawEdge[] };
 
-type EntityNode = { id: string; centrality: number; chunkIds: string[] };
+// chunkIds: every chunk this entity is mentioned in. docs: the set of distinct
+// source documents those chunks belong to (per-document provenance). An entity
+// with docs.size > 1 bridges documents.
+type EntityNode = { id: string; centrality: number; chunkIds: string[]; docs: string[] };
 type EntityEdge = { id: string; source: string; target: string; label: string; sharedChunks: string[] };
 
 const MAX_RENDERED = 80;
@@ -13,6 +16,14 @@ const TRIM_THRESHOLD = 200;
 
 const HIGH_COLOR = '#C4501A';
 const LOW_COLOR = '#D9D2C4';
+// Per-document filter palette. SIENNA highlights entities in the selected doc;
+// a deeper shade marks entities that also appear in other docs (bridges);
+// muted gray fades out entities absent from the selection.
+const DOC_HIGHLIGHT = '#A0522D';
+const DOC_BRIDGE = '#6B2E12';
+const DOC_MUTED = '#C9C3B6';
+
+const ALL_DOCUMENTS = '__ALL__';
 
 export default function EntityGraphPanel({ activeSessionId }: { activeSessionId?: string | null }) {
   const [raw, setRaw] = useState<RawGraph | null>(null);
@@ -23,6 +34,8 @@ export default function EntityGraphPanel({ activeSessionId }: { activeSessionId?
   const [reasoningIds, setReasoningIds] = useState<Set<string>>(new Set());
   const [reasoningQuery, setReasoningQuery] = useState<string | null>(null);
   const [highlightOn, setHighlightOn] = useState(true);
+  // Per-document filter: ALL_DOCUMENTS (merged) or one document's source name.
+  const [docFilter, setDocFilter] = useState<string>(ALL_DOCUMENTS);
 
   useEffect(() => {
     // The entity graph is session-scoped; /api/graph requires session_id.
@@ -53,7 +66,26 @@ export default function EntityGraphPanel({ activeSessionId }: { activeSessionId?
   const hasReasoning = reasoningIds.size > 0;
   const highlightActive = highlightOn && hasReasoning;
 
-  const projection = useMemo(() => projectEntityGraph(raw, reasoningIds), [raw, reasoningIds]);
+  // chunkId -> source document name, derived from the chunk nodes.
+  const chunkSourceById = useMemo(() => {
+    const map = new Map<string, string>();
+    raw?.nodes.forEach(n => {
+      if (n.type === 'chunk' && n.source) map.set(n.id, n.source);
+    });
+    return map;
+  }, [raw]);
+
+  // Distinct source documents present in this session's graph (for the filter).
+  const documents = useMemo(() => {
+    const set = new Set<string>();
+    chunkSourceById.forEach(src => set.add(src));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [chunkSourceById]);
+
+  const projection = useMemo(
+    () => projectEntityGraph(raw, reasoningIds, chunkSourceById),
+    [raw, reasoningIds, chunkSourceById],
+  );
   const chunkLabelById = useMemo(() => {
     const map = new Map<string, string>();
     raw?.nodes.forEach(n => {
@@ -61,6 +93,14 @@ export default function EntityGraphPanel({ activeSessionId }: { activeSessionId?
     });
     return map;
   }, [raw]);
+
+  // A document selected in the graph that no longer exists (e.g. after a delete)
+  // falls back to the merged view.
+  useEffect(() => {
+    if (docFilter !== ALL_DOCUMENTS && !documents.includes(docFilter)) {
+      setDocFilter(ALL_DOCUMENTS);
+    }
+  }, [documents, docFilter]);
 
   if (error) {
     return (
@@ -104,13 +144,38 @@ export default function EntityGraphPanel({ activeSessionId }: { activeSessionId?
   const selected = selectedId ? entities.find(e => e.id === selectedId) ?? null : null;
   const adjacency = buildAdjacency(edges);
 
+  // Per-document filter state. When a document is selected, entities mentioned
+  // in it are highlighted (sienna, larger); entities that ALSO appear in other
+  // documents are bridges (deeper sienna); everything else is muted and its
+  // edges faded. inSelectedDoc(id) answers "is this entity in the selected doc".
+  const docFiltered = docFilter !== ALL_DOCUMENTS;
+  const inSelectedDoc = (e: EntityNode) => e.docs.includes(docFilter);
+  const isBridge = (e: EntityNode) => docFiltered && inSelectedDoc(e) && e.docs.length > 1;
+
   return (
     <PanelShell>
       <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-foreground/10 bg-surface flex-wrap">
-        <div className="label-bold text-[10px] tracking-widest opacity-60">
-          {hasReasoning
-            ? `LAST_QUERY · ${truncate(reasoningQuery ?? '', 48)}`
-            : 'NO_QUERY_YET · RUN_A_REASONING_LAB_QUERY_TO_HIGHLIGHT_PATH'}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="label-bold text-[10px] tracking-widest opacity-60">
+            {hasReasoning
+              ? `LAST_QUERY · ${truncate(reasoningQuery ?? '', 48)}`
+              : 'NO_QUERY_YET · RUN_A_REASONING_LAB_QUERY_TO_HIGHLIGHT_PATH'}
+          </div>
+          {documents.length > 0 && (
+            <label className="flex items-center gap-2">
+              <span className="label-bold text-[9px] tracking-widest opacity-50">VIEW_BY_DOCUMENT</span>
+              <select
+                value={docFilter}
+                onChange={e => { setDocFilter(e.target.value); setSelectedId(null); }}
+                className="label-bold text-[9px] tracking-widest bg-surface border-thick border-foreground px-2 py-1.5 uppercase max-w-[220px] focus:outline-none focus:bg-muted-background"
+              >
+                <option value={ALL_DOCUMENTS}>ALL_DOCUMENTS</option>
+                {documents.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
         {hasReasoning && (
           <button
@@ -140,6 +205,13 @@ export default function EntityGraphPanel({ activeSessionId }: { activeSessionId?
                 const b = positions.get(e.target);
                 if (!a || !b) return null;
                 const isHover = hoverEdge?.id === e.id;
+                // In doc-filtered view, an edge is "active" only when BOTH
+                // endpoints are in the selected document; others fade to 20%.
+                const srcNode = entities.find(n => n.id === e.source);
+                const tgtNode = entities.find(n => n.id === e.target);
+                const edgeActive = !docFiltered
+                  || (!!srcNode && !!tgtNode && inSelectedDoc(srcNode) && inSelectedDoc(tgtNode));
+                const baseOpacity = docFiltered ? (edgeActive ? 0.35 : 0.05) : 0.18;
                 return (
                   <line
                     key={e.id}
@@ -149,7 +221,7 @@ export default function EntityGraphPanel({ activeSessionId }: { activeSessionId?
                     y2={b.y}
                     stroke={isHover ? HIGH_COLOR : '#1C1410'}
                     strokeWidth={isHover ? 1.6 : 0.5}
-                    strokeOpacity={isHover ? 0.9 : 0.18}
+                    strokeOpacity={isHover ? 0.9 : baseOpacity}
                     style={{ cursor: 'pointer' }}
                     onMouseEnter={() => {
                       const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -168,15 +240,32 @@ export default function EntityGraphPanel({ activeSessionId }: { activeSessionId?
                 const ratio = node.centrality / maxCentrality;
                 const baseRadius = 5 + ratio * 14;
                 const isOnPath = highlightActive && reasoningIds.has(node.id);
-                const r = isOnPath ? baseRadius + 3 : baseRadius;
-                const fill = ratio > 0.5 ? HIGH_COLOR : LOW_COLOR;
+                const inDoc = docFiltered && inSelectedDoc(node);
+                const bridge = isBridge(node);
+                // Doc-filtered view overrides centrality colouring: highlight
+                // in-doc entities (larger + sienna; deeper sienna if they also
+                // appear in other docs), mute the rest.
+                const r = docFiltered
+                  ? (inDoc ? baseRadius + 4 : Math.max(3, baseRadius - 2))
+                  : (isOnPath ? baseRadius + 3 : baseRadius);
+                const fill = docFiltered
+                  ? (inDoc ? (bridge ? DOC_BRIDGE : DOC_HIGHLIGHT) : DOC_MUTED)
+                  : (ratio > 0.5 ? HIGH_COLOR : LOW_COLOR);
                 const isSelected = selectedId === node.id;
-                const stroke = isOnPath ? HIGH_COLOR : isSelected ? HIGH_COLOR : '#1C1410';
-                const strokeWidth = isOnPath ? 3 : isSelected ? 3 : 1;
+                const stroke = docFiltered
+                  ? (inDoc ? (bridge ? DOC_BRIDGE : DOC_HIGHLIGHT) : '#B0A99C')
+                  : (isOnPath ? HIGH_COLOR : isSelected ? HIGH_COLOR : '#1C1410');
+                const strokeWidth = isSelected ? 3 : (docFiltered ? (inDoc ? 2 : 0.5) : (isOnPath ? 3 : 1));
+                const nodeOpacity = docFiltered && !inDoc ? 0.4 : 1;
+                const showLabel = docFiltered ? inDoc : (ratio > 0.35 || isOnPath);
+                const labelFill = docFiltered
+                  ? (bridge ? DOC_BRIDGE : DOC_HIGHLIGHT)
+                  : (isOnPath ? HIGH_COLOR : '#1C1410');
                 return (
                   <g
                     key={node.id}
                     style={{ cursor: 'pointer' }}
+                    opacity={nodeOpacity}
                     onClick={() => setSelectedId(prev => (prev === node.id ? null : node.id))}
                     onMouseEnter={() => setHoverNode({ id: node.id, x: p.x, y: p.y - r - 6 })}
                     onMouseLeave={() => setHoverNode(prev => (prev?.id === node.id ? null : prev))}
@@ -189,7 +278,7 @@ export default function EntityGraphPanel({ activeSessionId }: { activeSessionId?
                       stroke={stroke}
                       strokeWidth={strokeWidth}
                     />
-                    {(ratio > 0.35 || isOnPath) && (
+                    {showLabel && (
                       <text
                         x={p.x}
                         y={p.y + r + 10}
@@ -197,7 +286,7 @@ export default function EntityGraphPanel({ activeSessionId }: { activeSessionId?
                         fontFamily="Inter, Arial, sans-serif"
                         fontSize={9}
                         fontWeight={700}
-                        fill={isOnPath ? HIGH_COLOR : '#1C1410'}
+                        fill={labelFill}
                         style={{ letterSpacing: '0.05em', textTransform: 'uppercase', pointerEvents: 'none' }}
                       >
                         {truncate(node.id, 16)}
@@ -262,19 +351,38 @@ export default function EntityGraphPanel({ activeSessionId }: { activeSessionId?
           </svg>
 
           <div className="absolute bottom-4 left-4 bg-white border border-foreground/20 p-3 space-y-2 shadow-md">
-            <div className="flex items-center gap-3">
-              <div className="w-3 h-3 rounded-full" style={{ background: HIGH_COLOR }} />
-              <span className="label-bold text-[8px] tracking-widest">HIGH_CENTRALITY</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="w-3 h-3 rounded-full" style={{ background: LOW_COLOR, border: '1px solid #1C1410' }} />
-              <span className="label-bold text-[8px] tracking-widest">LOW_CENTRALITY</span>
-            </div>
-            {highlightActive && (
-              <div className="flex items-center gap-3">
-                <div className="w-3 h-3 rounded-full bg-white" style={{ border: `3px solid ${HIGH_COLOR}` }} />
-                <span className="label-bold text-[8px] tracking-widest">REASONING_PATH</span>
-              </div>
+            {docFiltered ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full" style={{ background: DOC_HIGHLIGHT }} />
+                  <span className="label-bold text-[8px] tracking-widest">IN_THIS_DOCUMENT</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full" style={{ background: DOC_BRIDGE }} />
+                  <span className="label-bold text-[8px] tracking-widest">SHARED_ACROSS_DOCS</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full" style={{ background: DOC_MUTED, border: '1px solid #B0A99C' }} />
+                  <span className="label-bold text-[8px] tracking-widest opacity-60">OTHER_DOCUMENTS</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full" style={{ background: HIGH_COLOR }} />
+                  <span className="label-bold text-[8px] tracking-widest">HIGH_CENTRALITY</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full" style={{ background: LOW_COLOR, border: '1px solid #1C1410' }} />
+                  <span className="label-bold text-[8px] tracking-widest">LOW_CENTRALITY</span>
+                </div>
+                {highlightActive && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full bg-white" style={{ border: `3px solid ${HIGH_COLOR}` }} />
+                    <span className="label-bold text-[8px] tracking-widest">REASONING_PATH</span>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -301,21 +409,57 @@ export default function EntityGraphPanel({ activeSessionId }: { activeSessionId?
                 <Stat label="RELATIONS" value={`${adjacency.get(selected.id)?.size ?? 0}`} />
                 <Stat label="CENTRALITY" value={`${selected.centrality}`} />
               </div>
+
+              {/* Per-document provenance. In a filtered view we scope to the
+                  selected document; otherwise we list every document the entity
+                  appears in (and flag cross-document bridges). */}
               <div>
-                <div className="label-bold text-[9px] opacity-50 mb-2">MENTIONED_IN_CHUNKS · {selected.chunkIds.length}</div>
-                <ul className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                  {selected.chunkIds.slice(0, 12).map(cid => (
-                    <li key={cid} className="font-mono text-[10px] leading-snug border-l-2 border-accent pl-2 opacity-80">
-                      {chunkLabelById.get(cid) ?? cid}
+                <div className="label-bold text-[9px] opacity-50 mb-2">
+                  MENTIONED_IN · {docFiltered ? 1 : selected.docs.length} DOC{(docFiltered ? 1 : selected.docs.length) === 1 ? '' : 'S'}
+                </div>
+                <ul className="space-y-1.5">
+                  {(docFiltered ? [docFilter] : selected.docs).map(d => (
+                    <li key={d} className="font-mono text-[10px] leading-snug border-l-2 border-accent pl-2 break-all">
+                      {d}
                     </li>
                   ))}
-                  {selected.chunkIds.length > 12 && (
-                    <li className="label-bold text-[9px] opacity-40 tracking-widest pt-1">
-                      +{selected.chunkIds.length - 12} MORE
-                    </li>
+                  {!docFiltered && selected.docs.length === 0 && (
+                    <li className="label-bold text-[9px] opacity-40 tracking-widest">NO_SOURCE_RECORDED</li>
                   )}
                 </ul>
+                {!docFiltered && selected.docs.length > 1 && (
+                  <div className="label-bold text-[8px] tracking-widest mt-2 px-2 py-1 inline-block" style={{ background: DOC_BRIDGE, color: '#fff' }}>
+                    BRIDGES_{selected.docs.length}_DOCUMENTS
+                  </div>
+                )}
               </div>
+
+              {(() => {
+                // Chunks to show: scoped to the selected document when filtering,
+                // otherwise every chunk the entity appears in.
+                const shownChunks = docFiltered
+                  ? selected.chunkIds.filter(cid => chunkSourceById.get(cid) === docFilter)
+                  : selected.chunkIds;
+                return (
+                  <div>
+                    <div className="label-bold text-[9px] opacity-50 mb-2">
+                      {docFiltered ? 'CHUNKS_IN_DOCUMENT' : 'MENTIONED_IN_CHUNKS'} · {shownChunks.length}
+                    </div>
+                    <ul className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {shownChunks.slice(0, 12).map(cid => (
+                        <li key={cid} className="font-mono text-[10px] leading-snug border-l-2 border-accent pl-2 opacity-80">
+                          {chunkLabelById.get(cid) ?? cid}
+                        </li>
+                      ))}
+                      {shownChunks.length > 12 && (
+                        <li className="label-bold text-[9px] opacity-40 tracking-widest pt-1">
+                          +{shownChunks.length - 12} MORE
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                );
+              })()}
             </>
           )}
         </aside>
@@ -349,7 +493,11 @@ function truncate(s: string, n: number) {
   return s.length > n ? s.substring(0, n - 1) + '…' : s;
 }
 
-function projectEntityGraph(raw: RawGraph | null, reasoningIds: Set<string> = new Set()) {
+function projectEntityGraph(
+  raw: RawGraph | null,
+  reasoningIds: Set<string> = new Set(),
+  chunkSourceById: Map<string, string> = new Map(),
+) {
   if (!raw) return null;
 
   const entityChunks = new Map<string, Set<string>>();
@@ -364,11 +512,21 @@ function projectEntityGraph(raw: RawGraph | null, reasoningIds: Set<string> = ne
   }
 
   const totalEntities = entityChunks.size;
-  let entries = Array.from(entityChunks.entries()).map(([id, chunks]) => ({
-    id,
-    centrality: chunks.size,
-    chunkIds: Array.from(chunks),
-  }));
+  let entries = Array.from(entityChunks.entries()).map(([id, chunks]) => {
+    const chunkIds = Array.from(chunks);
+    // Distinct documents this entity is mentioned in (per-document provenance).
+    const docs = new Set<string>();
+    for (const cid of chunkIds) {
+      const src = chunkSourceById.get(cid);
+      if (src) docs.add(src);
+    }
+    return {
+      id,
+      centrality: chunks.size,
+      chunkIds,
+      docs: Array.from(docs),
+    };
+  });
   entries.sort((a, b) => b.centrality - a.centrality);
 
   const trimmed = totalEntities > TRIM_THRESHOLD;

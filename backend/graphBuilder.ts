@@ -259,6 +259,9 @@ export class GraphBuilder {
           ? `${attrs.source} · ${(attrs.text || '').substring(0, 40)}…`
           : id,
         type: attrs.type,
+        // Source document of a chunk node — lets the UI attribute each entity
+        // to the document(s) it was mentioned in (per-document provenance).
+        source: attrs.type === 'chunk' ? (attrs.source ?? null) : undefined,
         centrality: attrs.type === 'entity' ? graph.outDegree(id) : graph.inDegree(id),
         confidence: 1.0
       });
