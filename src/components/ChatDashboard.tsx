@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Send,
   Cpu,
@@ -14,7 +14,7 @@ interface Contradiction {
   explanation: string;
 }
 
-interface Message {
+export interface Message {
   role: 'user' | 'assistant';
   content: string;
   confidence?: number;
@@ -31,11 +31,13 @@ interface Message {
   isLoading?: boolean;
 }
 
-export default function ChatDashboard({ onShowAnalysis }: {
+export default function ChatDashboard({ onShowAnalysis, query, setQuery, messages, setMessages }: {
   onShowAnalysis: (data: any) => void;
+  query: string;
+  setQuery: React.Dispatch<React.SetStateAction<string>>;
+  messages: Message[];
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
 }) {
-  const [query, setQuery] = useState('');
-  const [messages, setMessages] = useState<Message[]>([]);
 
   const handleQuery = async () => {
     if (!query.trim()) return;
@@ -170,7 +172,7 @@ export default function ChatDashboard({ onShowAnalysis }: {
         <footer className="p-6 md:p-8 bg-muted-background border-t-thick border-foreground">
           <div className="relative flex bg-surface border-thick border-foreground focus-within:ring-2 focus-within:ring-accent transition-all">
             <textarea
-              className="flex-1 p-5 bg-transparent focus:ring-0 border-none font-bold text-foreground text-sm placeholder:text-muted-text/30 resize-none h-24 uppercase"
+              className="flex-1 p-5 bg-transparent focus:ring-0 border-none font-bold text-foreground text-sm placeholder:text-muted-text/30 resize-none h-24"
               placeholder="ENTER_QUERY_FOR_REASONING_ENGINE..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { NavSection, SwissButton, Menu, X } from './components/SwissUI';
 import LandingPage from './components/LandingPage';
 import Dashboard from './components/Dashboard';
-import ChatDashboard from './components/ChatDashboard';
+import ChatDashboard, { Message } from './components/ChatDashboard';
 import AnalyticsResults from './components/AnalyticsResults';
 import SettingsPage from './components/SettingsPage';
 import SystemHealth from './components/SystemHealth';
@@ -13,6 +13,12 @@ export default function App() {
   const [currentView, setCurrentView] = React.useState('landing');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [selectedAnalysis, setSelectedAnalysis] = useState<any>(null);
+
+  // Lifted chat state — survives tab navigation so the conversation, last
+  // response, and right-hand panels (Pipeline Metadata / Agent Trace) restore
+  // when returning to the Reasoning Lab.
+  const [chatQuery, setChatQuery] = useState('');
+  const [chatMessages, setChatMessages] = useState<Message[]>([]);
 
   const navigateTo = (view: string) => {
     setCurrentView(view);
@@ -30,11 +36,16 @@ export default function App() {
       case 'chat': 
         return (
           <PageLayout activeView="chat" onNavigate={navigateTo} title="REASONING LAB">
-            <ChatDashboard onShowAnalysis={(data) => {
-              setSelectedAnalysis(data);
-              setSelectedAnalysis(prev => ({ ...prev, isCorpus: false }));
-              navigateTo('analytics');
-            }} />
+            <ChatDashboard
+              query={chatQuery}
+              setQuery={setChatQuery}
+              messages={chatMessages}
+              setMessages={setChatMessages}
+              onShowAnalysis={(data) => {
+                setSelectedAnalysis(data);
+                setSelectedAnalysis(prev => ({ ...prev, isCorpus: false }));
+                navigateTo('analytics');
+              }} />
           </PageLayout>
         );
       case 'analytics': 
