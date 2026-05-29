@@ -18,7 +18,11 @@ interface Chunk {
  */
 export class GraphBuilder {
   private graph: MultiDirectedGraph;
+  // Per-session graphs for the multi-session Reasoning Lab. The global `graph`
+  // above is used when no sessionId is supplied (legacy / Dashboard corpus).
+  private sessionGraphs = new Map<string, MultiDirectedGraph>();
   private readonly graphPath = path.join(process.cwd(), 'vectorstore', 'persistent_graph.json');
+  private readonly sessionDir = path.join(process.cwd(), 'vectorstore', 'graphs');
   private nerPipeline: any = null;
   private nerInitPromise: Promise<any> | null = null;
 
@@ -29,6 +33,47 @@ export class GraphBuilder {
 
   private async ensureDirectory() {
     await fs.ensureDir(path.join(process.cwd(), 'vectorstore'));
+    await fs.ensureDir(this.sessionDir);
+  }
+
+  private sessionPath(sessionId: string): string {
+    // Guard against path traversal — session ids are UUIDs, but be safe.
+    const safe = sessionId.replace(/[^a-zA-Z0-9_-]/g, '');
+    return path.join(this.sessionDir, `${safe}.json`);
+  }
+
+  // Resolve the graph for a scope: the session graph when sessionId is given
+  // (creating an empty one if needed), else the global graph.
+  private graphFor(sessionId?: string): MultiDirectedGraph {
+    if (!sessionId) return this.graph;
+    let g = this.sessionGraphs.get(sessionId);
+    if (!g) {
+      g = new MultiDirectedGraph();
+      this.sessionGraphs.set(sessionId, g);
+    }
+    return g;
+  }
+
+  // Lazily load a session graph from disk into memory if not already present.
+  // No-op for the global scope (loaded once at startup via load()).
+  async ensureLoaded(sessionId?: string): Promise<void> {
+    if (!sessionId || this.sessionGraphs.has(sessionId)) return;
+    const g = new MultiDirectedGraph();
+    const file = this.sessionPath(sessionId);
+    if (await fs.pathExists(file)) {
+      try {
+        g.import(await fs.readJson(file));
+      } catch {
+        /* corrupt/partial file — start empty */
+      }
+    }
+    this.sessionGraphs.set(sessionId, g);
+  }
+
+  // Node/edge counts for a scope — used by the upload toast.
+  stats(sessionId?: string): { node_count: number; edge_count: number } {
+    const g = this.graphFor(sessionId);
+    return { node_count: g.order, edge_count: g.size };
   }
 
   private useBertNer(): boolean {
@@ -75,30 +120,34 @@ export class GraphBuilder {
    * Update graph with new chunks.
    * Extracts entities and creates edges [Entity] -> [Chunk]
    */
-  async updateGraph(chunks: Chunk[]) {
+  async updateGraph(chunks: Chunk[], sessionId?: string) {
+    await this.ensureLoaded(sessionId);
+    const graph = this.graphFor(sessionId);
+
     for (const chunk of chunks) {
       if (!chunk.id) continue;
 
-      if (!this.graph.hasNode(chunk.id)) {
-        this.graph.addNode(chunk.id, { type: 'chunk', text: chunk.text, source: chunk.source });
+      if (!graph.hasNode(chunk.id)) {
+        graph.addNode(chunk.id, { type: 'chunk', text: chunk.text, source: chunk.source });
       }
 
       const entities = (await this.extractEntities(chunk.text)).filter(e => e.length > 2);
       for (const entity of entities) {
-        if (!this.graph.hasNode(entity)) {
-          this.graph.addNode(entity, { type: 'entity' });
+        if (!graph.hasNode(entity)) {
+          graph.addNode(entity, { type: 'entity' });
         }
-        this.graph.addDirectedEdge(entity, chunk.id);
+        graph.addDirectedEdge(entity, chunk.id);
       }
     }
 
-    await this.save();
+    await this.save(sessionId);
   }
 
   /**
    * Calculates a "graph score" for chunks based on their connectivity to query entities.
    */
-  getGraphScores(chunks: Chunk[], query: string): number[] {
+  getGraphScores(chunks: Chunk[], query: string, sessionId?: string): number[] {
+    const graph = this.graphFor(sessionId);
     const queryDoc = nlp(query);
     const queryEntities = [
       ...queryDoc.organizations().out('array'),
@@ -108,10 +157,10 @@ export class GraphBuilder {
 
     return chunks.map(chunk => {
       let score = 0;
-      if (!chunk.id || !this.graph.hasNode(chunk.id)) return 0;
+      if (!chunk.id || !graph.hasNode(chunk.id)) return 0;
 
       // Find entities in this chunk that match query entities
-      const chunkEntities = this.graph.inNeighbors(chunk.id);
+      const chunkEntities = graph.inNeighbors(chunk.id);
       for (const entity of chunkEntities) {
         if (queryEntities.includes(entity)) {
           score += 1.0;
@@ -140,19 +189,21 @@ export class GraphBuilder {
    */
   getQuerySubgraph(
     query: string,
-    topChunks: { id?: string; text: string; source: string }[]
+    topChunks: { id?: string; text: string; source: string }[],
+    sessionId?: string
   ) {
+    const graph = this.graphFor(sessionId);
     const queryEntities = new Set(this.extractQueryEntities(query));
-    const bridgingChunkIds = new Set(this.getBridgingChunks(query));
+    const bridgingChunkIds = new Set(this.getBridgingChunks(query, sessionId));
 
     const includedEntityIds = new Set<string>();
     const nodes: any[] = [];
     const edges: any[] = [];
 
     for (const chunk of topChunks) {
-      if (!chunk.id || !this.graph.hasNode(chunk.id)) continue;
+      if (!chunk.id || !graph.hasNode(chunk.id)) continue;
 
-      const inboundEntities = this.graph.inNeighbors(chunk.id);
+      const inboundEntities = graph.inNeighbors(chunk.id);
       const centrality = inboundEntities.length;
       const isBridge = bridgingChunkIds.has(chunk.id);
 
@@ -167,7 +218,7 @@ export class GraphBuilder {
       for (const entity of inboundEntities) {
         if (!includedEntityIds.has(entity)) {
           includedEntityIds.add(entity);
-          const entityCentrality = this.graph.outDegree(entity);
+          const entityCentrality = graph.outDegree(entity);
           nodes.push({
             id: entity,
             label: entity,
@@ -196,45 +247,47 @@ export class GraphBuilder {
   /**
    * Export the full persistent graph as plain {nodes, edges} for /api/graph.
    */
-  exportFull() {
+  exportFull(sessionId?: string) {
+    const graph = this.graphFor(sessionId);
     const nodes: any[] = [];
     const edges: any[] = [];
 
-    this.graph.forEachNode((id, attrs) => {
+    graph.forEachNode((id, attrs) => {
       nodes.push({
         id,
         label: attrs.type === 'chunk'
           ? `${attrs.source} · ${(attrs.text || '').substring(0, 40)}…`
           : id,
         type: attrs.type,
-        centrality: attrs.type === 'entity' ? this.graph.outDegree(id) : this.graph.inDegree(id),
+        centrality: attrs.type === 'entity' ? graph.outDegree(id) : graph.inDegree(id),
         confidence: 1.0
       });
     });
 
-    this.graph.forEachEdge((edgeId, _attrs, source, target) => {
+    graph.forEachEdge((edgeId, _attrs, source, target) => {
       edges.push({ id: edgeId, source, target, label: 'mentions', weight: 1.0 });
     });
 
     return {
       nodes,
       edges,
-      node_count: this.graph.order,
-      edge_count: this.graph.size
+      node_count: graph.order,
+      edge_count: graph.size
     };
   }
 
   /**
    * Finds chunks that act as bridges between entities in the query.
    */
-  getBridgingChunks(query: string): string[] {
+  getBridgingChunks(query: string, sessionId?: string): string[] {
+    const graph = this.graphFor(sessionId);
     const queryDoc = nlp(query);
     const queryEntities = [
       ...queryDoc.organizations().out('array'),
       ...queryDoc.people().out('array'),
       ...queryDoc.topics().out('array')
     ].map(e => e.toLowerCase().trim())
-     .filter(e => this.graph.hasNode(e));
+     .filter(e => graph.hasNode(e));
 
     if (queryEntities.length < 2) return [];
 
@@ -246,8 +299,8 @@ export class GraphBuilder {
         const e1 = queryEntities[i];
         const e2 = queryEntities[j];
 
-        const chunks1 = new Set(this.graph.outNeighbors(e1));
-        const chunks2 = this.graph.outNeighbors(e2);
+        const chunks1 = new Set(graph.outNeighbors(e1));
+        const chunks2 = graph.outNeighbors(e2);
 
         for (const c2 of chunks2) {
           if (chunks1.has(c2)) {
@@ -260,7 +313,12 @@ export class GraphBuilder {
     return Array.from(bridgingChunks);
   }
 
-  async save() {
+  async save(sessionId?: string) {
+    if (sessionId) {
+      const g = this.graphFor(sessionId);
+      await fs.writeJson(this.sessionPath(sessionId), g.export());
+      return;
+    }
     const data = this.graph.export();
     await fs.writeJson(this.graphPath, data);
   }
@@ -278,6 +336,18 @@ export class GraphBuilder {
     if (await fs.pathExists(this.graphPath)) {
       await fs.remove(this.graphPath);
     }
+    // Drop all session graphs too — /api/clear is a full purge.
+    this.sessionGraphs.clear();
+    if (await fs.pathExists(this.sessionDir)) {
+      await fs.emptyDir(this.sessionDir);
+    }
+  }
+
+  // Remove a single session's graph (used when a session is deleted).
+  async clearSession(sessionId: string) {
+    this.sessionGraphs.delete(sessionId);
+    const file = this.sessionPath(sessionId);
+    if (await fs.pathExists(file)) await fs.remove(file);
   }
 }
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Send,
   Cpu,
@@ -8,7 +8,7 @@ import {
 import { AgentTrace, AgentTraceEntry } from './AgentTrace';
 import { ClaimGraph } from './ClaimGraphPanel';
 import { authFetch } from '../lib/api';
-import SessionSidebar from './SessionSidebar';
+import SessionSidebar, { SessionDocument } from './SessionSidebar';
 
 interface Contradiction {
   claimA: string;
@@ -45,6 +45,54 @@ export default function ChatDashboard({ onShowAnalysis, query, setQuery, message
   sessionReloadSignal: number;
   bumpSessionReload: () => void;
 }) {
+
+  // Documents belonging to the active session, plus upload + toast state.
+  const [sessionDocuments, setSessionDocuments] = useState<SessionDocument[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  // Load the active session's documents whenever it changes or the sidebar
+  // signals a refresh (e.g. after an upload).
+  useEffect(() => {
+    if (!activeSessionId) {
+      setSessionDocuments([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await authFetch(`/api/sessions/${activeSessionId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setSessionDocuments(data.documents || []);
+      } catch {
+        /* ignore — leave existing list */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeSessionId, sessionReloadSignal]);
+
+  // Upload a PDF into the active session, then surface the merge toast.
+  const handleUpload = async (file: File) => {
+    if (!activeSessionId) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('sessionId', activeSessionId);
+      const res = await authFetch('/api/upload', { method: 'POST', body: form });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      setToast(`DOCUMENT_ADDED — GRAPH_UPDATED · +${data.chunkCount} CHUNKS · ${data.nodeCount} NODES`);
+      window.setTimeout(() => setToast(null), 4000);
+      bumpSessionReload(); // refresh doc list + session counts
+    } catch (err: any) {
+      setToast(`UPLOAD_FAILED · ${String(err.message || err).toUpperCase()}`);
+      window.setTimeout(() => setToast(null), 4000);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   // Persist one message to the active session. Best-effort: a failure here must
   // not break the chat UX, so we swallow errors after logging.
@@ -151,7 +199,17 @@ export default function ChatDashboard({ onShowAnalysis, query, setQuery, message
         onSelect={onSelectSession}
         onNew={onNewSession}
         reloadSignal={sessionReloadSignal}
+        documents={sessionDocuments}
+        onUpload={handleUpload}
+        uploading={uploading}
       />
+
+      {/* Toast: document-added / graph-updated notification */}
+      {toast && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-foreground text-background border-thick border-accent px-6 py-3 label-bold text-[11px] tracking-widest shadow-[6px_6px_0px_#00000020] animate-in fade-in slide-in-from-top-2 duration-200">
+          {toast}
+        </div>
+      )}
 
       {/* Main Chat Panel */}
       <section className="flex-1 flex flex-col bg-background relative border-r-thick border-foreground">

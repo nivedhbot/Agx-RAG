@@ -22,6 +22,7 @@ import { runMigrations } from './backend/migrations.js';
 import { requireAuth } from './backend/auth.js';
 import { authRouter } from './backend/authRoutes.js';
 import { sessionRouter } from './backend/sessionRoutes.js';
+import { getPool } from './backend/db.js';
 
 async function startServer() {
   const app = express();
@@ -105,12 +106,43 @@ async function startServer() {
         return res.status(400).json({ error: 'No file uploaded' });
       }
 
-      console.log(`Processing file: ${req.file.originalname}`);
+      // Optional session scope (multipart text field). When present, the
+      // document's chunks + graph are scoped to that session.
+      const sessionId: string | undefined = req.body?.sessionId || undefined;
+      const userId = (req as any).user?.id as string | undefined;
+
+      // If a session was given, verify the caller owns it before ingesting.
+      if (sessionId) {
+        const pool = getPool();
+        if (!pool) return res.status(503).json({ error: 'Session database unavailable' });
+        const owns = await pool.query(
+          'SELECT id FROM chat_sessions WHERE id = $1 AND user_id = $2',
+          [sessionId, userId],
+        );
+        if (owns.rowCount === 0) return res.status(404).json({ error: 'Session not found' });
+      }
+
+      console.log(`Processing file: ${req.file.originalname}${sessionId ? ` (session ${sessionId})` : ''}`);
       const rawChunks = await processPdf(req.file.buffer, req.file.originalname);
 
-      const processedChunks = await vectorStore.addChunks(rawChunks);
-      await graphBuilder.updateGraph(processedChunks);
+      const processedChunks = await vectorStore.addChunks(rawChunks, sessionId);
+      await graphBuilder.updateGraph(processedChunks, sessionId);
       metrics.recordUpload(req.file.originalname, rawChunks.length);
+
+      // Record the document against the session and report the session graph's
+      // updated size for the toast.
+      const graphStats = graphBuilder.stats(sessionId);
+      if (sessionId) {
+        const pool = getPool();
+        if (pool) {
+          await pool.query(
+            `INSERT INTO session_documents (session_id, filename, chunk_count)
+             VALUES ($1, $2, $3)`,
+            [sessionId, req.file.originalname, rawChunks.length],
+          );
+          await pool.query('UPDATE chat_sessions SET last_active = now() WHERE id = $1', [sessionId]);
+        }
+      }
 
       res.json({
         message: 'Upload successful',
@@ -120,6 +152,8 @@ async function startServer() {
           status: 'Processed',
         },
         chunkCount: rawChunks.length,
+        nodeCount: graphStats.node_count,
+        edgeCount: graphStats.edge_count,
       });
     } catch (error: any) {
       console.error('Upload error:', error);
@@ -132,16 +166,16 @@ async function startServer() {
   // Set toggles.useAgentPipeline=false (via /api/settings) to fall back to the
   // legacy single-pass pipeline.
   app.post('/api/query', requireAuth, async (req, res) => {
-    const { query } = req.body;
+    const { query, sessionId } = req.body;
     if (!query) return res.status(400).json({ error: 'Query is required' });
 
-    console.log(`Processing query: ${query}`);
+    console.log(`Processing query: ${query}${sessionId ? ` (session ${sessionId})` : ''}`);
     const startTime = Date.now();
     const useAgents = settings.get().toggles.useAgentPipeline;
 
     try {
       if (useAgents) {
-        const result = await orchestratorAgent.run(query);
+        const result = await orchestratorAgent.run(query, sessionId);
         metrics.recordQuery({
           latencyMs: Date.now() - startTime,
           confidence: result.confidence,
@@ -181,6 +215,7 @@ async function startServer() {
         const knowledgeGraph = graphBuilder.getQuerySubgraph(
           query,
           topChunks.map(c => ({ id: c.id, text: c.text ?? '', source: c.source ?? '' })),
+          sessionId,
         );
 
         res.json({
@@ -200,10 +235,10 @@ async function startServer() {
       }
 
       // Legacy path.
-      const reRankedResults = await ragPipeline.process(query, 20);
+      const reRankedResults = await ragPipeline.process(query, 20, sessionId);
       const topChunks = reRankedResults.slice(0, 5);
       const generation = await llmGenerator.generate(query, topChunks);
-      const knowledgeGraph = graphBuilder.getQuerySubgraph(query, topChunks);
+      const knowledgeGraph = graphBuilder.getQuerySubgraph(query, topChunks, sessionId);
       metrics.recordQuery({
         latencyMs: Date.now() - startTime,
         confidence: generation.confidence,

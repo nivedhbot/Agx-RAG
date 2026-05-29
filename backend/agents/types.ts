@@ -53,6 +53,10 @@ export interface AgentTraceEntry {
 
 export interface Scratchpad {
   originalQuery: string;
+  // Optional session scope. When set, retrieval + graph operations are limited
+  // to this session's documents; when undefined they fall back to the global
+  // corpus (preserving the legacy single-corpus behaviour).
+  sessionId?: string;
   subQueries: string[];
   expandedQueries: string[];
   retrievedChunks: RetrievedChunk[];
@@ -78,9 +82,10 @@ export interface AgentRunResult {
   latencyMs: number;
 }
 
-export function newScratchpad(query: string): Scratchpad {
+export function newScratchpad(query: string, sessionId?: string): Scratchpad {
   return {
     originalQuery: query,
+    sessionId,
     subQueries: [],
     expandedQueries: [],
     retrievedChunks: [],

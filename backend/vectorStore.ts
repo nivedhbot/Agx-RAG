@@ -7,6 +7,7 @@ interface Chunk {
   page: number;
   embedding?: number[];
   id?: string;
+  sessionId?: string | null;
 }
 
 /**
@@ -44,11 +45,11 @@ export class VectorStore {
     return this.backend?.name ?? 'unknown';
   }
 
-  async addChunks(newChunks: Chunk[]) {
+  async addChunks(newChunks: Chunk[], sessionId?: string) {
     const extractor = await this.getExtractor();
     const backend = await this.getBackend();
 
-    console.log(`Generating embeddings for ${newChunks.length} chunks...`);
+    console.log(`Generating embeddings for ${newChunks.length} chunks${sessionId ? ` (session ${sessionId})` : ''}...`);
 
     const texts = newChunks.map(c => c.text);
     const output = await extractor(texts, { pooling: 'mean', normalize: true });
@@ -61,6 +62,7 @@ export class VectorStore {
       const embedding = Array.from(output.data.slice(startIndex, startIndex + embeddingSize)) as number[];
       newChunks[i].embedding = embedding;
       newChunks[i].id = Math.random().toString(36).substring(7);
+      newChunks[i].sessionId = sessionId ?? null;
       this.chunks.push(newChunks[i]);
       stored.push({
         id: newChunks[i].id!,
@@ -68,6 +70,7 @@ export class VectorStore {
         source: newChunks[i].source,
         page: newChunks[i].page,
         embedding,
+        sessionId: sessionId ?? null,
       });
     }
 
@@ -75,15 +78,15 @@ export class VectorStore {
     return newChunks;
   }
 
-  async search(query: string, topK: number = 20) {
+  async search(query: string, topK: number = 20, sessionId?: string) {
     const extractor = await this.getExtractor();
     const backend = await this.getBackend();
     const output = await extractor(query, { pooling: 'mean', normalize: true });
     const queryEmbedding = Array.from(output.data) as number[];
 
     // Delegate to backend. Postgres uses pgvector's <#> operator; JSON does
-    // an in-memory linear scan.
-    const results = await backend.searchTopK(queryEmbedding, topK);
+    // an in-memory linear scan. Both restrict to the session when provided.
+    const results = await backend.searchTopK(queryEmbedding, topK, sessionId);
     return results.map(r => ({
       id: r.id,
       text: r.text,
@@ -103,6 +106,7 @@ export class VectorStore {
       source: c.source,
       page: c.page,
       embedding: c.embedding,
+      sessionId: c.sessionId ?? null,
     }));
     if (this.chunks.length > 0) {
       console.log(`Loaded ${this.chunks.length} chunks from ${backend.name} backend.`);

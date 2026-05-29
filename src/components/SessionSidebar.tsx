@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { PlusSquare, Trash2, FileText, Terminal } from './SwissUI';
+import { PlusSquare, Trash2, FileText, Terminal, UploadCloud } from './SwissUI';
 import { authFetch } from '../lib/api';
 
 export interface SessionSummary {
@@ -11,6 +11,12 @@ export interface SessionSummary {
   message_count: number;
 }
 
+export interface SessionDocument {
+  id: string;
+  filename: string;
+  chunk_count: number;
+}
+
 interface SessionSidebarProps {
   activeSessionId: string | null;
   onSelect: (id: string) => void;
@@ -18,6 +24,10 @@ interface SessionSidebarProps {
   // Incrementing number — when it changes the list refetches (e.g. after a new
   // session is created or a title auto-updates from the first query).
   reloadSignal: number;
+  // Documents belonging to the active session, shown under its title.
+  documents: SessionDocument[];
+  onUpload: (file: File) => void;
+  uploading: boolean;
 }
 
 // Compact "time since" label, e.g. NOW / 4M / 3H / 2D.
@@ -35,11 +45,12 @@ function timeSince(iso: string): string {
   return `${weeks}W`;
 }
 
-export default function SessionSidebar({ activeSessionId, onSelect, onNew, reloadSignal }: SessionSidebarProps) {
+export default function SessionSidebar({ activeSessionId, onSelect, onNew, reloadSignal, documents, onUpload, uploading }: SessionSidebarProps) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const longPress = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const load = async () => {
     try {
@@ -133,6 +144,47 @@ export default function SessionSidebar({ activeSessionId, onSelect, onNew, reloa
                 <span>·</span>
                 <span>{timeSince(s.last_active)} AGO</span>
               </div>
+
+              {/* Active session: per-session document list + upload control. */}
+              {active && (
+                <div className="mt-3 pt-3 border-t border-foreground/10" onClick={(e) => e.stopPropagation()}>
+                  <div className="label-bold text-[8px] opacity-40 mb-2 tracking-widest">SESSION_DOCUMENTS</div>
+                  {documents.length === 0 ? (
+                    <p className="text-[9px] font-mono opacity-30 mb-2">NO_DOCUMENTS_YET</p>
+                  ) : (
+                    <ul className="space-y-1 mb-2">
+                      {documents.map(d => (
+                        <li key={d.id} className="flex items-center justify-between gap-2 text-[9px] font-mono">
+                          <span className="flex items-center gap-1 truncate">
+                            <FileText size={10} className="shrink-0 opacity-50" />
+                            <span className="truncate">{d.filename}</span>
+                          </span>
+                          <span className="shrink-0 opacity-50">{d.chunk_count} CH</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    ref={fileInput}
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) onUpload(f);
+                      if (fileInput.current) fileInput.current.value = '';
+                    }}
+                  />
+                  <button
+                    onClick={() => fileInput.current?.click()}
+                    disabled={uploading}
+                    className="w-full flex items-center justify-center gap-2 bg-foreground text-background py-2 label-bold text-[9px] tracking-widest hover:bg-accent transition-colors disabled:opacity-40"
+                  >
+                    <UploadCloud size={12} className={uploading ? 'animate-bounce' : ''} />
+                    {uploading ? 'INGESTING...' : 'ADD_DOCUMENT'}
+                  </button>
+                </div>
+              )}
 
               {menuFor === s.id && (
                 <div

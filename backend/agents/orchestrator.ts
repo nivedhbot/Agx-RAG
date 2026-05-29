@@ -10,9 +10,9 @@ import { newScratchpad, timed } from './types.js';
 // synthesises → self-reflects. The loop bails as soon as confidence /
 // contradiction signals look stable.
 export class OrchestratorAgent {
-  async run(query: string): Promise<AgentRunResult> {
+  async run(query: string, sessionId?: string): Promise<AgentRunResult> {
     const start = Date.now();
-    const scratchpad = newScratchpad(query);
+    const scratchpad = newScratchpad(query, sessionId);
 
     // 1. Decompose into sub-queries (single LLM call, cheap).
     scratchpad.subQueries = await this.decompose(scratchpad);

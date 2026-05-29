@@ -21,13 +21,16 @@ interface ScoredChunk {
  */
 export class RagPipeline {
 
-  async process(query: string, topK: number = 20): Promise<ScoredChunk[]> {
-    // 1. Initial Retrieval
-    const initialChunks = await vectorStore.search(query, topK);
-    
+  async process(query: string, topK: number = 20, sessionId?: string): Promise<ScoredChunk[]> {
+    // Ensure the session's graph is loaded before the synchronous graph calls.
+    await graphBuilder.ensureLoaded(sessionId);
+
+    // 1. Initial Retrieval (scoped to the session when provided)
+    const initialChunks = await vectorStore.search(query, topK, sessionId);
+
     // 2. Fetch Graph/Relational Components
-    const graphScores = graphBuilder.getGraphScores(initialChunks as any, query);
-    const bridgingIds = graphBuilder.getBridgingChunks(query);
+    const graphScores = graphBuilder.getGraphScores(initialChunks as any, query, sessionId);
+    const bridgingIds = graphBuilder.getBridgingChunks(query, sessionId);
 
     // Map to ScoredChunk structure
     const processedChunks: ScoredChunk[] = initialChunks.map((chunk, i) => ({

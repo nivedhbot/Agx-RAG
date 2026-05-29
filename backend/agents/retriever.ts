@@ -36,17 +36,18 @@ export class RetrieverAgent {
   // Bumps top-K when scores look weak.
   async retrieve(scratchpad: Scratchpad, queries: string[]): Promise<RetrievedChunk[]> {
     return timed(scratchpad, 'retriever', 'search', async () => {
+      const sessionId = scratchpad.sessionId;
       let topK = BASE_TOP_K;
-      let merged = await this.searchAll(queries, topK);
+      let merged = await this.searchAll(queries, topK, sessionId);
       const topScore = merged[0]?.finalScore ?? 0;
       if (topScore < LOW_SCORE_THRESHOLD && topK < MAX_TOP_K) {
         topK = MAX_TOP_K;
-        merged = await this.searchAll(queries, topK);
+        merged = await this.searchAll(queries, topK, sessionId);
       }
       // Cross-document bridging: boost chunks that the entity graph flags as
       // bridging between query entities. Earlier inversion (`if (ids.has(id)) continue`)
       // meant we only inspected IDs NOT in merged, where the `find` could never match.
-      const bridging = graphBuilder.getBridgingChunks(scratchpad.originalQuery);
+      const bridging = graphBuilder.getBridgingChunks(scratchpad.originalQuery, sessionId);
       if (bridging.length > 0) {
         const bridgeSet = new Set(bridging);
         for (const chunk of merged) {
@@ -57,10 +58,10 @@ export class RetrieverAgent {
     }, `${queries.length} query variants, returned chunks`, { topK_initial: BASE_TOP_K });
   }
 
-  private async searchAll(queries: string[], topK: number): Promise<RetrievedChunk[]> {
+  private async searchAll(queries: string[], topK: number, sessionId?: string): Promise<RetrievedChunk[]> {
     const seen = new Map<string, RetrievedChunk>();
     for (const q of queries) {
-      const chunks = await ragPipeline.process(q, topK);
+      const chunks = await ragPipeline.process(q, topK, sessionId);
       for (const c of chunks) {
         const existing = seen.get(c.id);
         if (!existing || c.finalScore > existing.finalScore) {

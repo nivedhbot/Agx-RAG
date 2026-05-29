@@ -8,6 +8,7 @@
 import { Router, type Response } from 'express';
 import { getPool } from './db.js';
 import { requireAuth, type AuthedRequest } from './auth.js';
+import { graphBuilder } from './graphBuilder.js';
 
 export const sessionRouter = Router();
 
@@ -124,6 +125,9 @@ sessionRouter.delete('/:id', async (req: AuthedRequest, res: Response) => {
       [req.params.id, req.user!.id],
     );
     if (r.rowCount === 0) return res.status(404).json({ error: 'Session not found' });
+    // Drop the session's entity graph file too (chunks stay but are filtered
+    // out of every query by session_id, so they never surface elsewhere).
+    await graphBuilder.clearSession(req.params.id);
     res.json({ deleted: r.rows[0].id });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

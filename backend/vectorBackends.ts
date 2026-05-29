@@ -11,6 +11,8 @@ export interface StoredChunk {
   source: string;
   page: number;
   embedding: number[];
+  // Optional owning session. Null/undefined = global corpus (legacy behaviour).
+  sessionId?: string | null;
 }
 
 export interface VectorBackend {
@@ -18,7 +20,8 @@ export interface VectorBackend {
   init(): Promise<void>;
   loadAll(): Promise<StoredChunk[]>;
   add(chunks: StoredChunk[]): Promise<void>;
-  searchTopK(queryEmbedding: number[], topK: number): Promise<Array<StoredChunk & { score: number }>>;
+  // When sessionId is provided, search is restricted to that session's chunks.
+  searchTopK(queryEmbedding: number[], topK: number, sessionId?: string): Promise<Array<StoredChunk & { score: number }>>;
   clear(): Promise<void>;
 }
 
@@ -44,9 +47,10 @@ export class JsonVectorBackend implements VectorBackend {
     await fs.writeJson(this.storePath, merged);
   }
 
-  async searchTopK(q: number[], topK: number) {
+  async searchTopK(q: number[], topK: number, sessionId?: string) {
     const all = await this.loadAll();
-    const scored = all.map(c => ({ ...c, score: dot(q, c.embedding) }));
+    const pool = sessionId ? all.filter(c => c.sessionId === sessionId) : all;
+    const scored = pool.map(c => ({ ...c, score: dot(q, c.embedding) }));
     scored.sort((a, b) => b.score - a.score);
     return scored.slice(0, topK);
   }
@@ -87,18 +91,23 @@ export class PostgresVectorBackend implements VectorBackend {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
+    // Session scoping — added idempotently so existing deployments upgrade in
+    // place. NULL session_id = global corpus (legacy chunks).
+    await this.pool.query(`ALTER TABLE chunks ADD COLUMN IF NOT EXISTS session_id TEXT`);
     await this.pool.query(`CREATE INDEX IF NOT EXISTS chunks_source_idx ON chunks (source)`);
+    await this.pool.query(`CREATE INDEX IF NOT EXISTS chunks_session_idx ON chunks (session_id)`);
   }
 
   async loadAll(): Promise<StoredChunk[]> {
-    const res = await this.pool.query<{ id: string; source: string; text: string; page: number; embedding: string }>(
-      'SELECT id, source, text, page, embedding::text AS embedding FROM chunks ORDER BY created_at',
+    const res = await this.pool.query<{ id: string; source: string; text: string; page: number; embedding: string; session_id: string | null }>(
+      'SELECT id, source, text, page, session_id, embedding::text AS embedding FROM chunks ORDER BY created_at',
     );
     return res.rows.map(r => ({
       id: r.id,
       source: r.source,
       text: r.text,
       page: r.page,
+      sessionId: r.session_id,
       embedding: parseVector(r.embedding),
     }));
   }
@@ -113,8 +122,8 @@ export class PostgresVectorBackend implements VectorBackend {
           throw new Error(`expected ${EMBED_DIM}-dim embedding, got ${c.embedding.length}`);
         }
         await client.query(
-          'INSERT INTO chunks (id, source, text, page, embedding) VALUES ($1, $2, $3, $4, $5::vector) ON CONFLICT (id) DO NOTHING',
-          [c.id, c.source, c.text, c.page, formatVector(c.embedding)],
+          'INSERT INTO chunks (id, source, text, page, embedding, session_id) VALUES ($1, $2, $3, $4, $5::vector, $6) ON CONFLICT (id) DO NOTHING',
+          [c.id, c.source, c.text, c.page, formatVector(c.embedding), c.sessionId ?? null],
         );
       }
       await client.query('COMMIT');
@@ -126,22 +135,26 @@ export class PostgresVectorBackend implements VectorBackend {
     }
   }
 
-  async searchTopK(q: number[], topK: number) {
+  async searchTopK(q: number[], topK: number, sessionId?: string) {
     // pgvector's <#> is NEGATIVE inner product, so ORDER BY ASC gives best match.
     // We flip the sign back so callers see "higher is better".
-    const res = await this.pool.query<{ id: string; source: string; text: string; page: number; embedding: string; neg_ip: string }>(
-      `SELECT id, source, text, page, embedding::text AS embedding,
+    const where = sessionId ? 'WHERE session_id = $3' : '';
+    const params: any[] = sessionId ? [formatVector(q), topK, sessionId] : [formatVector(q), topK];
+    const res = await this.pool.query<{ id: string; source: string; text: string; page: number; embedding: string; session_id: string | null; neg_ip: string }>(
+      `SELECT id, source, text, page, session_id, embedding::text AS embedding,
               (embedding <#> $1::vector) AS neg_ip
        FROM chunks
+       ${where}
        ORDER BY embedding <#> $1::vector ASC
        LIMIT $2`,
-      [formatVector(q), topK],
+      params,
     );
     return res.rows.map(r => ({
       id: r.id,
       source: r.source,
       text: r.text,
       page: r.page,
+      sessionId: r.session_id,
       embedding: parseVector(r.embedding),
       score: -Number(r.neg_ip),
     }));
