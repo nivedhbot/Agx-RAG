@@ -4,7 +4,7 @@
 import { Router, type Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { getPool } from './db.js';
-import { signToken, requireAuth, type AuthedRequest, type AuthUser } from './auth.js';
+import { signToken, requireAuth, resolveRole, type AuthedRequest, type AuthUser } from './auth.js';
 
 const BCRYPT_ROUNDS = 10;
 
@@ -41,10 +41,16 @@ authRouter.post('/register', async (req: AuthedRequest, res: Response) => {
     const result = await pool.query(
       `INSERT INTO users (email, password_hash, display_name)
        VALUES ($1, $2, $3)
-       RETURNING id, email, display_name`,
+       RETURNING id, email, display_name, role`,
       [email.toLowerCase(), hash, typeof display_name === 'string' ? display_name : null],
     );
-    const user = result.rows[0] as AuthUser;
+    const row = result.rows[0];
+    const user: AuthUser = {
+      id: row.id,
+      email: row.email,
+      display_name: row.display_name,
+      role: resolveRole(row.email, row.role),
+    };
     const token = signToken(user);
     res.status(201).json({ token, user });
   } catch (err: any) {
@@ -68,7 +74,7 @@ authRouter.post('/login', async (req: AuthedRequest, res: Response) => {
 
   try {
     const result = await pool.query(
-      'SELECT id, email, display_name, password_hash FROM users WHERE email = $1',
+      'SELECT id, email, display_name, password_hash, role FROM users WHERE email = $1',
       [email.toLowerCase()],
     );
     if (result.rowCount === 0) {
@@ -79,7 +85,12 @@ authRouter.post('/login', async (req: AuthedRequest, res: Response) => {
     if (!ok) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    const user: AuthUser = { id: row.id, email: row.email, display_name: row.display_name };
+    const user: AuthUser = {
+      id: row.id,
+      email: row.email,
+      display_name: row.display_name,
+      role: resolveRole(row.email, row.role),
+    };
     const token = signToken(user);
     res.json({ token, user });
   } catch (err: any) {

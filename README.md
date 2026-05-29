@@ -62,7 +62,9 @@ State is organized as user, then session, then documents:
 
 Every session-scoped endpoint verifies that the session belongs to the caller before returning data. A request for a session the caller does not own is rejected, and each ownership decision for the document and graph reads is written to the server log as an `[auth]` audit line. This means uploading, querying, viewing the knowledge graph, and listing documents are all confined to the authenticated user's own sessions.
 
-Schema is created and kept current by SQL migrations in `backend/migrations/`, applied automatically on startup. The relevant tables are `users`, `chat_sessions`, `session_documents`, `session_messages`, and `chunks` (the last carrying a nullable `session_id` so the shared global corpus and per-session uploads coexist in one index).
+Accounts carry a role, `user` (default) or `admin`. Admins are the only callers allowed to clear the global corpus or change global settings; ordinary users can still read settings and health metrics. The effective role is the stored `users.role` value, overridden to `admin` when the account's email is listed in the `ADMIN_EMAILS` environment variable. The allowlist bootstraps the first administrator without a manual database step; thereafter roles can be granted directly in the `role` column.
+
+Schema is created and kept current by SQL migrations in `backend/migrations/`, applied automatically on startup. The relevant tables are `users` (with a `role` column), `chat_sessions`, `session_documents`, `session_messages`, and `chunks` (the last carrying a nullable `session_id` so the shared global corpus and per-session uploads coexist in one index).
 
 ## Setup
 
@@ -90,6 +92,10 @@ DATABASE_URL=postgresql://agx:agx@localhost:5432/agxrag
 # Secret used to sign JWTs. Required in production (the server throws on
 # startup if it is missing). A dev-only fallback is used otherwise.
 JWT_SECRET=replace-with-a-long-random-string
+
+# Comma-separated emails always treated as admins, regardless of stored role.
+# Used to bootstrap the first administrator.
+ADMIN_EMAILS=you@example.com
 ```
 
 ### 3. Postgres + pgvector
@@ -145,8 +151,8 @@ All routes except `/api/health` and the auth register/login routes require a `Be
 | `/api/query` | POST | Multi-agent pipeline; returns answer, claim graph, evidence chain, agent trace. Session-scoped when a `sessionId` is supplied |
 | `/api/documents` | GET | List a session's documents (requires `session_id`, session-scoped) |
 | `/api/graph` | GET | Export a session's entity graph (requires `session_id`, session-scoped) |
-| `/api/settings` | GET/POST | Runtime tunables (F(d) weights, agent iteration limit, toggles) |
-| `/api/clear` | POST | Purge the global corpus and graph |
+| `/api/settings` | GET/POST | GET for any authenticated user; POST (global config write) is admin-only |
+| `/api/clear` | POST | Purge the global corpus and graph (admin-only) |
 
 Set `toggles.useAgentPipeline = false` via `/api/settings` to fall back to the legacy single-pass RAG.
 

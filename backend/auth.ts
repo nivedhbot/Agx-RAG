@@ -29,11 +29,32 @@ export interface AuthUser {
   id: string;
   email: string;
   display_name: string | null;
+  role: 'user' | 'admin';
 }
 
 interface JwtPayload {
   sub: string;
   email: string;
+}
+
+// Emails listed in ADMIN_EMAILS (comma-separated) are always treated as admins,
+// regardless of their stored role. This bootstraps the first admin without a
+// manual SQL step; the DB `role` column covers everyone else.
+function adminAllowlist(): Set<string> {
+  return new Set(
+    (process.env.ADMIN_EMAILS ?? '')
+      .split(',')
+      .map(e => e.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+// Effective role: 'admin' if the stored role is admin OR the email is in the
+// ADMIN_EMAILS allowlist; otherwise whatever is stored (default 'user').
+export function resolveRole(email: string, storedRole?: string | null): 'user' | 'admin' {
+  if (storedRole === 'admin') return 'admin';
+  if (adminAllowlist().has(email.toLowerCase())) return 'admin';
+  return 'user';
 }
 
 // Express's Request has no `user` field by default. We attach the decoded user
@@ -73,17 +94,35 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
   try {
     const result = await pool.query(
-      'SELECT id, email, display_name FROM users WHERE id = $1',
+      'SELECT id, email, display_name, role FROM users WHERE id = $1',
       [payload.sub],
     );
     if (result.rowCount === 0) {
       return res.status(401).json({ error: 'User no longer exists' });
     }
-    (req as AuthedRequest).user = result.rows[0] as AuthUser;
+    const row = result.rows[0];
+    (req as AuthedRequest).user = {
+      id: row.id,
+      email: row.email,
+      display_name: row.display_name,
+      role: resolveRole(row.email, row.role),
+    };
     next();
   } catch (err: any) {
     res.status(500).json({ error: `Auth lookup failed: ${err.message}` });
   }
+}
+
+// Gate for admin-only actions. Must run after requireAuth (which attaches the
+// resolved role). Responds 403 for authenticated non-admins.
+export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  const user = (req as AuthedRequest).user;
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  if (user.role !== 'admin') {
+    console.log(`[auth] admin route ${req.method} ${req.path} user_id=${user.id} — DENIED`);
+    return res.status(403).json({ error: 'Administrator access required' });
+  }
+  next();
 }
 
 export { signToken, getSecret };

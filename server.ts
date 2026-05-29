@@ -19,7 +19,7 @@ import { settings } from './backend/settings.js';
 import { metrics } from './backend/metrics.js';
 import { warmupNli, isNliEnabled } from './backend/agents/nli.js';
 import { runMigrations } from './backend/migrations.js';
-import { requireAuth } from './backend/auth.js';
+import { requireAuth, requireAdmin } from './backend/auth.js';
 import { authRouter } from './backend/authRoutes.js';
 import { sessionRouter } from './backend/sessionRoutes.js';
 import { getPool } from './backend/db.js';
@@ -396,21 +396,21 @@ async function startServer() {
     res.json(graphBuilder.exportFull(sessionId));
   });
 
-  // Clear the GLOBAL corpus + graph. Destructive and not session-scoped, so it
-  // requires auth (previously open to any anonymous caller).
-  app.post('/api/clear', requireAuth, async (req, res) => {
+  // Clear the GLOBAL corpus + graph. Destructive and affects every user, so it
+  // is admin-only (requireAdmin runs after requireAuth, which sets the role).
+  app.post('/api/clear', requireAuth, requireAdmin, async (req, res) => {
     await vectorStore.clear();
     await graphBuilder.clear();
-    metrics.log('warn', `corpus cleared by user ${(req as any).user?.id}`);
+    metrics.log('warn', `corpus cleared by admin ${(req as any).user?.id}`);
     res.json({ message: 'Corpus and Graph cleared' });
   });
 
-  // Configuration: read + write app settings. Gated — settings control the LLM
-  // pipeline and toggles, so they must not be world-readable/writable.
+  // Configuration. Reads are available to any authenticated user; writes change
+  // the global LLM pipeline for everyone, so they are admin-only.
   app.get('/api/settings', requireAuth, (_req, res) => {
     res.json(settings.get());
   });
-  app.post('/api/settings', requireAuth, async (req, res) => {
+  app.post('/api/settings', requireAuth, requireAdmin, async (req, res) => {
     try {
       const next = await settings.update(req.body ?? {});
       res.json(next);

@@ -9,9 +9,10 @@ import {
 } from './SwissUI';
 import { authFetch } from '../lib/api';
 
-export default function Dashboard({ activeSessionId, onSessionDocsChanged }: {
+export default function Dashboard({ activeSessionId, onSessionDocsChanged, isAdmin = false }: {
   activeSessionId?: string | null;
   onSessionDocsChanged?: () => void;
+  isAdmin?: boolean;
 }) {
   const [documents, setDocuments] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -156,12 +157,18 @@ export default function Dashboard({ activeSessionId, onSessionDocsChanged }: {
               <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_#10b981]" />
               <span className="label-bold text-xs uppercase tracking-tighter">Corpus_Interface_Active</span>
             </div>
-            <button 
-              onClick={handleClearCorpus}
-              className="w-full py-3 border border-white/20 text-[9px] label-bold hover:bg-red-600 hover:border-red-600 transition-all uppercase tracking-widest"
-            >
-              PURGE_SYSTEM_CORE
-            </button>
+            {isAdmin ? (
+              <button
+                onClick={handleClearCorpus}
+                className="w-full py-3 border border-white/20 text-[9px] label-bold hover:bg-red-600 hover:border-red-600 transition-all uppercase tracking-widest"
+              >
+                PURGE_SYSTEM_CORE
+              </button>
+            ) : (
+              <p className="w-full py-3 border border-white/10 text-[9px] label-bold uppercase tracking-widest text-center opacity-40">
+                ADMIN_ONLY
+              </p>
+            )}
           </div>
         </aside>
 

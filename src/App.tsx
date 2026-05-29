@@ -16,6 +16,7 @@ interface User {
   id: string;
   email: string;
   display_name: string | null;
+  role?: 'user' | 'admin';
 }
 
 // Views that require a valid JWT. Landing is public.
@@ -115,6 +116,7 @@ export default function App() {
   // Label for the nav user indicator: display name, then email, then a generic
   // fallback so the chip never renders empty.
   const userName = user?.display_name || user?.email || 'OPERATOR';
+  const isAdmin = user?.role === 'admin';
 
   // Create a fresh session and switch to it (empty conversation).
   const handleNewSession = async () => {
@@ -198,13 +200,13 @@ export default function App() {
         return <AuthPage onAuthSuccess={handleAuthSuccess} />;
       case 'dashboard':
         return (
-          <PageLayout activeView="dashboard" onNavigate={navigateTo} onLogout={handleLogout} userName={userName} title="SOURCE NODES" showBackButton={false}>
-            <Dashboard activeSessionId={activeSessionId} onSessionDocsChanged={bumpSessionReload} />
+          <PageLayout activeView="dashboard" onNavigate={navigateTo} onLogout={handleLogout} userName={userName} isAdmin={isAdmin} title="SOURCE NODES" showBackButton={false}>
+            <Dashboard activeSessionId={activeSessionId} onSessionDocsChanged={bumpSessionReload} isAdmin={isAdmin} />
           </PageLayout>
         );
       case 'chat':
         return (
-          <PageLayout activeView="chat" onNavigate={navigateTo} onLogout={handleLogout} userName={userName} title="REASONING LAB">
+          <PageLayout activeView="chat" onNavigate={navigateTo} onLogout={handleLogout} userName={userName} isAdmin={isAdmin} title="REASONING LAB">
             <ChatDashboard
               query={chatQuery}
               setQuery={setChatQuery}
@@ -224,20 +226,20 @@ export default function App() {
         );
       case 'analytics':
         return (
-          <PageLayout activeView="analytics" onNavigate={navigateTo} onLogout={handleLogout} userName={userName} title="KNOWLEDGE MAP" subtitle={selectedAnalysis?.query ? "QUERY ANALYSIS" : "CORPUS ANALYTICS"}>
+          <PageLayout activeView="analytics" onNavigate={navigateTo} onLogout={handleLogout} userName={userName} isAdmin={isAdmin} title="KNOWLEDGE MAP" subtitle={selectedAnalysis?.query ? "QUERY ANALYSIS" : "CORPUS ANALYTICS"}>
             <AnalyticsResults queryData={selectedAnalysis} activeSessionId={activeSessionId} />
           </PageLayout>
         );
       case 'health':
         return (
-          <PageLayout activeView="health" onNavigate={navigateTo} onLogout={handleLogout} userName={userName} title="SYSTEM HEALTH">
+          <PageLayout activeView="health" onNavigate={navigateTo} onLogout={handleLogout} userName={userName} isAdmin={isAdmin} title="SYSTEM HEALTH">
             <SystemHealth />
           </PageLayout>
         );
       case 'settings':
         return (
-          <PageLayout activeView="settings" onNavigate={navigateTo} onLogout={handleLogout} userName={userName} title="CONFIGURATION">
-            <SettingsPage />
+          <PageLayout activeView="settings" onNavigate={navigateTo} onLogout={handleLogout} userName={userName} isAdmin={isAdmin} title="CONFIGURATION">
+            <SettingsPage isAdmin={isAdmin} />
           </PageLayout>
         );
       default: return (

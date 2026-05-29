@@ -26,6 +26,7 @@ interface PageLayoutProps {
   showBackButton?: boolean;
   onLogout?: () => void;
   userName?: string | null;
+  isAdmin?: boolean;
 }
 
 export default function PageLayout({
@@ -36,7 +37,8 @@ export default function PageLayout({
   subtitle,
   showBackButton = true,
   onLogout,
-  userName
+  userName,
+  isAdmin = false
 }: PageLayoutProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -97,7 +99,7 @@ export default function PageLayout({
                   header's single-row layout. */}
               <div className="hidden md:flex items-center gap-2 px-4 py-2 border-thin border-foreground bg-muted-background label-bold text-[10px] md:text-xs">
                 <span className="w-2 h-2 bg-accent rounded-full" />
-                <span className="text-on-surface-variant">USER</span>
+                <span className="text-on-surface-variant">{isAdmin ? 'ADMIN' : 'USER'}</span>
                 <span className="text-foreground tracking-tight uppercase max-w-[160px] truncate">
                   {userName || 'OPERATOR'}
                 </span>

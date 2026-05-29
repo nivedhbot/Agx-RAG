@@ -18,6 +18,7 @@ export interface AuthUser {
   id: string;
   email: string;
   display_name: string | null;
+  role?: 'user' | 'admin';
 }
 
 // True when a token is present. This is a cheap, synchronous check — it does

@@ -13,11 +13,15 @@ interface AppSettings {
   toggles: { useAgentPipeline: boolean; localNliEnabled: boolean };
 }
 
-export default function SettingsPage() {
+export default function SettingsPage({ isAdmin = false }: { isAdmin?: boolean }) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Settings writes and the global purge are admin-only on the server. Lock the
+  // controls for non-admins so the UI matches the 403 the API would return.
+  const locked = busy || !isAdmin;
 
   useEffect(() => {
     authFetch('/api/settings')
@@ -84,6 +88,11 @@ export default function SettingsPage() {
         {error && (
           <p className="label-bold text-[10px] text-red-600 mt-4 uppercase">ERROR: {error}</p>
         )}
+        {!isAdmin && (
+          <p className="label-bold text-[10px] mt-4 px-3 py-2 inline-block bg-foreground text-background uppercase tracking-widest">
+            READ_ONLY · ADMINISTRATOR_ACCESS_REQUIRED_TO_MODIFY
+          </p>
+        )}
       </section>
 
       <div className="space-y-12">
@@ -99,28 +108,28 @@ export default function SettingsPage() {
               label="α · SEMANTIC"
               value={settings.ragWeights.alpha}
               onChange={v => save({ ragWeights: { ...settings.ragWeights, alpha: v } })}
-              disabled={busy}
+              disabled={locked}
             />
             <WeightSlider
               icon={Database}
               label="β · GRAPH"
               value={settings.ragWeights.beta}
               onChange={v => save({ ragWeights: { ...settings.ragWeights, beta: v } })}
-              disabled={busy}
+              disabled={locked}
             />
             <WeightSlider
               icon={Cpu}
               label="γ · RELATIONAL"
               value={settings.ragWeights.gamma}
               onChange={v => save({ ragWeights: { ...settings.ragWeights, gamma: v } })}
-              disabled={busy}
+              disabled={locked}
             />
             <WeightSlider
               icon={Shield}
               label="λ · CONTRADICTION"
               value={settings.ragWeights.lambda}
               onChange={v => save({ ragWeights: { ...settings.ragWeights, lambda: v } })}
-              disabled={busy}
+              disabled={locked}
             />
           </div>
         </div>
@@ -137,7 +146,7 @@ export default function SettingsPage() {
               max={5}
               step={1}
               onChange={v => save({ agent: { ...settings.agent, maxIterations: v } })}
-              disabled={busy}
+              disabled={locked}
             />
             <NumberField
               label="CONFIDENCE_THRESHOLD"
@@ -147,7 +156,7 @@ export default function SettingsPage() {
               max={1}
               step={0.05}
               onChange={v => save({ agent: { ...settings.agent, confidenceThreshold: v } })}
-              disabled={busy}
+              disabled={locked}
             />
           </div>
         </div>
@@ -161,14 +170,14 @@ export default function SettingsPage() {
               desc="USE THE FULL 5-AGENT CGOT-MARS LOOP. OFF = LEGACY SINGLE-PASS."
               value={settings.toggles.useAgentPipeline}
               onChange={v => save({ toggles: { ...settings.toggles, useAgentPipeline: v } })}
-              disabled={busy}
+              disabled={locked}
             />
             <ToggleField
               label="LOCAL_NLI"
               desc="DEBERTA-V3-XSMALL FOR CLAIM RELATIONS. OFF = LEXICAL HEURISTIC."
               value={settings.toggles.localNliEnabled}
               onChange={v => save({ toggles: { ...settings.toggles, localNliEnabled: v } })}
-              disabled={busy}
+              disabled={locked}
             />
           </div>
         </div>
@@ -181,7 +190,7 @@ export default function SettingsPage() {
             </div>
             <button
               onClick={purge}
-              disabled={busy}
+              disabled={locked}
               className="px-8 py-3 bg-accent text-white label-bold hover:bg-white hover:text-accent transition-all disabled:opacity-40"
             >
               PURGE_ALL_DATA
