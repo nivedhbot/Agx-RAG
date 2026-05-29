@@ -167,12 +167,21 @@ export default function ChatDashboard({ onShowAnalysis, query, setQuery, message
         } as any];
       });
 
-      // Persist the assistant answer with light metadata for history reload.
+      // Persist the assistant answer with the full pipeline payload so a
+      // reloaded session restores not just the text but the metadata strip,
+      // right-hand Pipeline panel, and the DECONSTRUCT_SYNTHESIS analysis view.
       if (activeSessionId && data.answer) {
         await persistMessage(activeSessionId, 'assistant', data.answer, {
           confidence: data.confidence,
           latency: data.latency,
           sources: data.sources,
+          reasoningPath: data.reasoningPath,
+          topChunks: data.topChunks,
+          knowledgeGraph: data.knowledgeGraph,
+          claimGraph: data.claimGraph,
+          contradictions: data.contradictions,
+          evidenceChain: data.evidenceChain,
+          agentTrace: data.agentTrace,
         });
         bumpSessionReload();
       }

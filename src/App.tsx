@@ -143,14 +143,33 @@ export default function App() {
       const res = await authFetch(`/api/sessions/${id}`);
       if (!res.ok) return;
       const data = await res.json();
-      const restored: Message[] = (data.messages || []).map((m: any) => ({
-        role: m.role,
-        content: m.content,
-        confidence: m.metadata?.confidence,
-        latency: m.metadata?.latency,
-        sources: m.metadata?.sources,
-        query: m.role === 'user' ? m.content : undefined,
-      }));
+      // Rehydrate the full message shape from the persisted metadata so a
+      // reloaded session restores the metadata strip, right-hand Pipeline
+      // panel, and the DECONSTRUCT_SYNTHESIS view — not just the answer text.
+      const rows: any[] = data.messages || [];
+      const restored: Message[] = rows.map((m: any, i: number) => {
+        const md = m.metadata || {};
+        // An assistant message's `query` (used as the analysis title) is the
+        // preceding user message, not its own answer text.
+        const priorUser = m.role === 'assistant'
+          ? [...rows.slice(0, i)].reverse().find(r => r.role === 'user')?.content
+          : m.content;
+        return {
+          role: m.role,
+          content: m.content,
+          confidence: md.confidence,
+          latency: md.latency,
+          sources: md.sources,
+          reasoningPath: md.reasoningPath,
+          topChunks: md.topChunks,
+          knowledgeGraph: md.knowledgeGraph,
+          claimGraph: md.claimGraph,
+          contradictions: md.contradictions,
+          evidenceChain: md.evidenceChain,
+          agentTrace: md.agentTrace,
+          query: priorUser,
+        };
+      });
       setChatMessages(restored);
     } catch (err) {
       console.error('Failed to load session:', err);
