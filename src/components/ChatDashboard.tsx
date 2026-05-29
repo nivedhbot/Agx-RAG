@@ -7,6 +7,8 @@ import {
 } from './SwissUI';
 import { AgentTrace, AgentTraceEntry } from './AgentTrace';
 import { ClaimGraph } from './ClaimGraphPanel';
+import { authFetch } from '../lib/api';
+import SessionSidebar from './SessionSidebar';
 
 interface Contradiction {
   claimA: string;
@@ -31,13 +33,36 @@ export interface Message {
   isLoading?: boolean;
 }
 
-export default function ChatDashboard({ onShowAnalysis, query, setQuery, messages, setMessages }: {
+export default function ChatDashboard({ onShowAnalysis, query, setQuery, messages, setMessages, activeSessionId, onSelectSession, onNewSession, sessionReloadSignal, bumpSessionReload }: {
   onShowAnalysis: (data: any) => void;
   query: string;
   setQuery: React.Dispatch<React.SetStateAction<string>>;
   messages: Message[];
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+  activeSessionId: string | null;
+  onSelectSession: (id: string) => void;
+  onNewSession: () => void;
+  sessionReloadSignal: number;
+  bumpSessionReload: () => void;
 }) {
+
+  // Persist one message to the active session. Best-effort: a failure here must
+  // not break the chat UX, so we swallow errors after logging.
+  const persistMessage = async (
+    sessionId: string,
+    role: 'user' | 'assistant',
+    content: string,
+    metadata?: any,
+  ) => {
+    try {
+      await authFetch(`/api/sessions/${sessionId}/messages`, {
+        method: 'POST',
+        body: JSON.stringify({ role, content, metadata }),
+      });
+    } catch (err) {
+      console.error('Failed to persist message:', err);
+    }
+  };
 
   const handleQuery = async () => {
     if (!query.trim()) return;
@@ -49,10 +74,16 @@ export default function ChatDashboard({ onShowAnalysis, query, setQuery, message
     setMessages(prev => [...prev, userMsg, assistantMsg]);
     setQuery('');
 
+    // Persist the user message first so the session title auto-generates from
+    // the first query, then refresh the sidebar to show the new title.
+    if (activeSessionId) {
+      await persistMessage(activeSessionId, 'user', currentQuery);
+      bumpSessionReload();
+    }
+
     try {
-      const res = await fetch('/api/query', {
+      const res = await authFetch('/api/query', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: currentQuery }),
       });
 
@@ -87,6 +118,16 @@ export default function ChatDashboard({ onShowAnalysis, query, setQuery, message
           query: currentQuery,
         } as any];
       });
+
+      // Persist the assistant answer with light metadata for history reload.
+      if (activeSessionId && data.answer) {
+        await persistMessage(activeSessionId, 'assistant', data.answer, {
+          confidence: data.confidence,
+          latency: data.latency,
+          sources: data.sources,
+        });
+        bumpSessionReload();
+      }
     } catch (err) {
       console.error('Query failed:', err);
       setMessages(prev => {
@@ -104,6 +145,14 @@ export default function ChatDashboard({ onShowAnalysis, query, setQuery, message
 
   return (
     <div className="flex h-full animate-in fade-in duration-500 overflow-hidden relative border-thick border-foreground bg-surface shadow-[12px_12px_0px_#00000010]">
+      {/* Left Panel: session management */}
+      <SessionSidebar
+        activeSessionId={activeSessionId}
+        onSelect={onSelectSession}
+        onNew={onNewSession}
+        reloadSignal={sessionReloadSignal}
+      />
+
       {/* Main Chat Panel */}
       <section className="flex-1 flex flex-col bg-background relative border-r-thick border-foreground">
         <header className="h-14 border-b-thick border-foreground flex items-center px-6 gap-4 bg-muted-background">

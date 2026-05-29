@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { authFetch } from '../lib/api';
 
 type RawNode = { id: string; label: string; type: string; centrality: number; confidence: number };
 type RawEdge = { id: string; source: string; target: string; label: string; weight: number };
@@ -24,7 +25,7 @@ export default function EntityGraphPanel() {
   const [highlightOn, setHighlightOn] = useState(true);
 
   useEffect(() => {
-    fetch('/api/graph')
+    authFetch('/api/graph')
       .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
       .then(json => setRaw(json))
       .catch(err => setError(err.message));

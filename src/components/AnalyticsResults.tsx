@@ -26,6 +26,7 @@ import {
 import { AgentTrace } from './AgentTrace';
 import { ClaimGraphPanel } from './ClaimGraphPanel';
 import EntityGraphPanel from './EntityGraphPanel';
+import { authFetch } from '../lib/api';
 
 type KGNode = { id: string; label: string; type: string; confidence: number; centrality: number };
 type KGEdge = { id: string; source: string; target: string; label: string; weight: number };
@@ -196,7 +197,7 @@ export default function AnalyticsResults({ queryData }: {
   const [graphMetrics, setGraphMetrics] = React.useState<{ graphNodes: number; graphEdges: number } | null>(null);
 
   React.useEffect(() => {
-    fetch('/api/documents')
+    authFetch('/api/documents')
       .then(res => res.json())
       .then(data => {
         setCorpusStats(data);

@@ -9,6 +9,7 @@ import SystemHealth from './components/SystemHealth';
 import PageLayout from './components/PageLayout';
 import Footer from './components/Footer';
 import AuthPage, { TOKEN_KEY } from './pages/AuthPage';
+import { authFetch } from './lib/api';
 
 interface User {
   id: string;
@@ -29,6 +30,12 @@ export default function App() {
   // when returning to the Reasoning Lab.
   const [chatQuery, setChatQuery] = useState('');
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
+
+  // Multi-session state for the Reasoning Lab. activeSessionId is the session
+  // whose messages are shown; sessionReload bumps to refetch the sidebar list.
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [sessionReload, setSessionReload] = useState(0);
+  const bumpSessionReload = () => setSessionReload(n => n + 1);
 
   // Auth state. `user` null = signed out. `authChecked` gates the first render
   // until we've validated any stored token, avoiding a redirect race.
@@ -60,6 +67,25 @@ export default function App() {
       .finally(() => setAuthChecked(true));
   }, []);
 
+  // A 401 from any authFetch call (expired/cleared token) bounces back to auth.
+  useEffect(() => {
+    const onUnauthorized = () => {
+      setUser(null);
+      setCurrentView('auth');
+    };
+    window.addEventListener('agx:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('agx:unauthorized', onUnauthorized);
+  }, []);
+
+  // Entering the Reasoning Lab with no active session creates one so the very
+  // first query has somewhere to persist (and gets an auto-generated title).
+  useEffect(() => {
+    if (currentView === 'chat' && user && !activeSessionId) {
+      handleNewSession();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentView, user]);
+
   const navigateTo = (view: string) => {
     // Gate protected views behind a valid session.
     if (PROTECTED_VIEWS.includes(view) && !user) {
@@ -86,6 +112,49 @@ export default function App() {
     localStorage.removeItem(TOKEN_KEY);
     setUser(null);
     setCurrentView('landing');
+  };
+
+  // Create a fresh session and switch to it (empty conversation).
+  const handleNewSession = async () => {
+    try {
+      const res = await authFetch('/api/sessions', { method: 'POST' });
+      if (!res.ok) return;
+      const data = await res.json();
+      setActiveSessionId(data.session.id);
+      setChatMessages([]);
+      setChatQuery('');
+      bumpSessionReload();
+    } catch (err) {
+      console.error('Failed to create session:', err);
+    }
+  };
+
+  // Load a session's stored messages into the chat view. An empty id means the
+  // active session was deleted — clear the view.
+  const handleSelectSession = async (id: string) => {
+    if (!id) {
+      setActiveSessionId(null);
+      setChatMessages([]);
+      bumpSessionReload();
+      return;
+    }
+    setActiveSessionId(id);
+    try {
+      const res = await authFetch(`/api/sessions/${id}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const restored: Message[] = (data.messages || []).map((m: any) => ({
+        role: m.role,
+        content: m.content,
+        confidence: m.metadata?.confidence,
+        latency: m.metadata?.latency,
+        sources: m.metadata?.sources,
+        query: m.role === 'user' ? m.content : undefined,
+      }));
+      setChatMessages(restored);
+    } catch (err) {
+      console.error('Failed to load session:', err);
+    }
   };
 
   // Hold the first paint until the stored token has been checked.
@@ -120,6 +189,11 @@ export default function App() {
               setQuery={setChatQuery}
               messages={chatMessages}
               setMessages={setChatMessages}
+              activeSessionId={activeSessionId}
+              onSelectSession={handleSelectSession}
+              onNewSession={handleNewSession}
+              sessionReloadSignal={sessionReload}
+              bumpSessionReload={bumpSessionReload}
               onShowAnalysis={(data) => {
                 setSelectedAnalysis(data);
                 setSelectedAnalysis(prev => ({ ...prev, isCorpus: false }));

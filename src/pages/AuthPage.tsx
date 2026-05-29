@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import { SwissButton, ArrowRight, Lock } from '../components/SwissUI';
+import { TOKEN_KEY } from '../lib/api';
+
+export { TOKEN_KEY };
 
 // AuthPage — LOGIN / REGISTER, warm Swiss design system.
 //
@@ -13,8 +16,6 @@ interface AuthPageProps {
   // Called with the authenticated user after a successful login/register.
   onAuthSuccess: (user: { id: string; email: string; display_name: string | null }) => void;
 }
-
-export const TOKEN_KEY = 'agx_token';
 
 export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
   const [view, setView] = useState<View>('login');

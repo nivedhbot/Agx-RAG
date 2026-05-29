@@ -5,8 +5,9 @@ import {
   Eye, 
   Trash2, 
   Network,
-  SwissButton 
+  SwissButton
 } from './SwissUI';
+import { authFetch } from '../lib/api';
 
 export default function Dashboard() {
   const [documents, setDocuments] = useState<any[]>([]);
@@ -17,7 +18,7 @@ export default function Dashboard() {
   const fetchDocuments = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/documents');
+      const res = await authFetch('/api/documents');
       const data = await res.json();
       setDocuments(data);
     } catch (err) {
@@ -40,7 +41,7 @@ export default function Dashboard() {
     formData.append('file', file);
 
     try {
-      const res = await fetch('/api/upload', {
+      const res = await authFetch('/api/upload', {
         method: 'POST',
         body: formData,
       });

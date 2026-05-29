@@ -21,6 +21,7 @@ import { warmupNli, isNliEnabled } from './backend/agents/nli.js';
 import { runMigrations } from './backend/migrations.js';
 import { requireAuth } from './backend/auth.js';
 import { authRouter } from './backend/authRoutes.js';
+import { sessionRouter } from './backend/sessionRoutes.js';
 
 async function startServer() {
   const app = express();
@@ -55,6 +56,9 @@ async function startServer() {
 
   // Auth routes (register/login/me/logout) — public, no token required.
   app.use('/api/auth', authRouter);
+
+  // Session management routes — all gated by requireAuth inside the router.
+  app.use('/api/sessions', sessionRouter);
 
   // Multer for uploads
   const upload = multer({ storage: multer.memoryStorage() });
