@@ -24,6 +24,46 @@ import { authRouter } from './backend/authRoutes.js';
 import { sessionRouter } from './backend/sessionRoutes.js';
 import { getPool } from './backend/db.js';
 
+// Ownership gate for session-scoped read endpoints (/api/documents, /api/graph).
+// Requires a `session_id` query param and verifies the session belongs to the
+// authenticated user. Writes the error response itself and returns the validated
+// session id, or null when the caller may not proceed. Emits an audit line:
+//   [auth] GET <route> session_id=<id> user_id=<uid> — ALLOWED | DENIED
+async function gateSessionRead(route: string, req: any, res: any): Promise<string | null> {
+  const userId: string | undefined = req.user?.id;
+  const sessionId = (req.query?.session_id as string) || '';
+
+  if (!sessionId) {
+    console.log(`[auth] GET ${route} session_id=(missing) user_id=${userId} — DENIED`);
+    res.status(400).json({ error: 'session_id is required' });
+    return null;
+  }
+
+  const pool = getPool();
+  if (!pool) {
+    res.status(503).json({ error: 'Session database unavailable' });
+    return null;
+  }
+
+  try {
+    const owns = await pool.query(
+      'SELECT id FROM chat_sessions WHERE id = $1 AND user_id = $2',
+      [sessionId, userId],
+    );
+    if (owns.rowCount === 0) {
+      console.log(`[auth] GET ${route} session_id=${sessionId} user_id=${userId} — DENIED`);
+      res.status(403).json({ error: 'You do not have access to this session' });
+      return null;
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: `Ownership check failed: ${err.message}` });
+    return null;
+  }
+
+  console.log(`[auth] GET ${route} session_id=${sessionId} user_id=${userId} — ALLOWED`);
+  return sessionId;
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -270,29 +310,43 @@ async function startServer() {
     }
   });
 
-  // TASK 1: Get Documents
-  app.get('/api/documents', requireAuth, (req, res) => {
-    // Derive documents from vector store chunks
-    const chunks = vectorStore.getAllChunks();
-    const docMap = new Map();
-    chunks.forEach(c => {
-      if (!docMap.has(c.source)) {
-        docMap.set(c.source, {
-          id: Math.random().toString(36).substring(7),
-          name: c.source,
-          chunks: 0,
+  // Documents for ONE session the caller owns. Sourced from session_documents
+  // (the authoritative per-session record), never the shared in-memory chunk
+  // pool — that pool mixes every user's uploads and leaked across sessions.
+  app.get('/api/documents', requireAuth, async (req, res) => {
+    const sessionId = await gateSessionRead('/documents', req, res);
+    if (!sessionId) return; // response already sent by the gate
+
+    const pool = getPool();
+    if (!pool) return res.status(503).json({ error: 'Session database unavailable' });
+    try {
+      const r = await pool.query(
+        `SELECT id, filename, chunk_count, uploaded_at
+         FROM session_documents WHERE session_id = $1 ORDER BY uploaded_at ASC`,
+        [sessionId],
+      );
+      res.json(
+        r.rows.map((d: any) => ({
+          id: d.id,
+          name: d.filename,
+          chunks: d.chunk_count,
           status: 'Processed',
-          date: 'N/A'
-        });
-      }
-      docMap.get(c.source).chunks++;
-    });
-    res.json(Array.from(docMap.values()));
+          date: d.uploaded_at,
+        })),
+      );
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  // TASK 1: Get Graph
-  app.get('/api/graph', requireAuth, (req, res) => {
-    res.json(graphBuilder.exportFull());
+  // Entity graph for ONE session the caller owns. Loads that session's graph
+  // from disk and exports only it — never the global graph.
+  app.get('/api/graph', requireAuth, async (req, res) => {
+    const sessionId = await gateSessionRead('/graph', req, res);
+    if (!sessionId) return; // response already sent by the gate
+
+    await graphBuilder.ensureLoaded(sessionId);
+    res.json(graphBuilder.exportFull(sessionId));
   });
 
   // TASK 1: Clear Corpus

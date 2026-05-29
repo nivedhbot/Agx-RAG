@@ -9,18 +9,31 @@ import {
 } from './SwissUI';
 import { authFetch } from '../lib/api';
 
-export default function Dashboard() {
+export default function Dashboard({ activeSessionId, onSessionDocsChanged }: {
+  activeSessionId?: string | null;
+  onSessionDocsChanged?: () => void;
+}) {
   const [documents, setDocuments] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchDocuments = async () => {
+    // Documents are session-scoped — without an active session there is nothing
+    // to show (and the endpoint requires session_id).
+    if (!activeSessionId) {
+      setDocuments([]);
+      return;
+    }
     setLoading(true);
     try {
-      const res = await authFetch('/api/documents');
+      const res = await authFetch(`/api/documents?session_id=${encodeURIComponent(activeSessionId)}`);
+      if (!res.ok) {
+        setDocuments([]);
+        return;
+      }
       const data = await res.json();
-      setDocuments(data);
+      setDocuments(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Failed to fetch documents:', err);
     } finally {
@@ -30,15 +43,22 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchDocuments();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId]);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (!activeSessionId) {
+      alert('Open the Reasoning Lab and start a session before uploading documents.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
 
     setUploading(true);
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('sessionId', activeSessionId);
 
     try {
       const res = await authFetch('/api/upload', {
@@ -47,6 +67,7 @@ export default function Dashboard() {
       });
       if (res.ok) {
         await fetchDocuments();
+        onSessionDocsChanged?.();
       }
     } catch (err) {
       console.error('Upload failed:', err);
@@ -183,7 +204,11 @@ export default function Dashboard() {
                     </tr>
                   ) : documents.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="p-16 text-center opacity-30 text-xs">EMPTY_REPOSITORY. UPLOAD_DOCUMENTS_TO_COMMENCE.</td>
+                      <td colSpan={6} className="p-16 text-center opacity-30 text-xs">
+                        {activeSessionId
+                          ? 'EMPTY_REPOSITORY. UPLOAD_DOCUMENTS_TO_COMMENCE.'
+                          : 'NO_ACTIVE_SESSION. OPEN_REASONING_LAB_TO_SELECT_A_SESSION.'}
+                      </td>
                     </tr>
                   ) : documents.map((doc, i) => (
                     <tr 

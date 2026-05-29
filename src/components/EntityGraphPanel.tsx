@@ -14,7 +14,7 @@ const TRIM_THRESHOLD = 200;
 const HIGH_COLOR = '#C4501A';
 const LOW_COLOR = '#D9D2C4';
 
-export default function EntityGraphPanel() {
+export default function EntityGraphPanel({ activeSessionId }: { activeSessionId?: string | null }) {
   const [raw, setRaw] = useState<RawGraph | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -25,11 +25,19 @@ export default function EntityGraphPanel() {
   const [highlightOn, setHighlightOn] = useState(true);
 
   useEffect(() => {
-    authFetch('/api/graph')
+    // The entity graph is session-scoped; /api/graph requires session_id.
+    if (!activeSessionId) {
+      setRaw({ nodes: [], edges: [] });
+      setError(null);
+      return;
+    }
+    setRaw(null);
+    setError(null);
+    authFetch(`/api/graph?session_id=${encodeURIComponent(activeSessionId)}`)
       .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
       .then(json => setRaw(json))
       .catch(err => setError(err.message));
-  }, []);
+  }, [activeSessionId]);
 
   useEffect(() => {
     try {

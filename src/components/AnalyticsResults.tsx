@@ -190,19 +190,26 @@ function KnowledgeGraphPanel({ graph }: { graph?: KnowledgeGraph }) {
   );
 }
 
-export default function AnalyticsResults({ queryData }: {
-  queryData?: any
+export default function AnalyticsResults({ queryData, activeSessionId }: {
+  queryData?: any;
+  activeSessionId?: string | null;
 }) {
   const [corpusStats, setCorpusStats] = React.useState<any[]>([]);
   const [graphMetrics, setGraphMetrics] = React.useState<{ graphNodes: number; graphEdges: number } | null>(null);
 
   React.useEffect(() => {
-    authFetch('/api/documents')
-      .then(res => res.json())
+    // Session-scoped — skip the call entirely without an active session.
+    if (!activeSessionId) {
+      setCorpusStats([]);
+      return;
+    }
+    authFetch(`/api/documents?session_id=${encodeURIComponent(activeSessionId)}`)
+      .then(res => (res.ok ? res.json() : []))
       .then(data => {
-        setCorpusStats(data);
-      });
-  }, []);
+        setCorpusStats(Array.isArray(data) ? data : []);
+      })
+      .catch(() => setCorpusStats([]));
+  }, [activeSessionId]);
 
   React.useEffect(() => {
     fetch('/api/health/metrics')
@@ -490,7 +497,7 @@ export default function AnalyticsResults({ queryData }: {
           <p className="text-on-surface-variant max-w-xl label-bold text-xs uppercase tracking-wider mb-8">
             Interactive node-link projection of extracted entities. Edges link entities co-mentioned across the same source chunks.
           </p>
-          <EntityGraphPanel />
+          <EntityGraphPanel activeSessionId={activeSessionId} />
         </section>
       </div>
     );

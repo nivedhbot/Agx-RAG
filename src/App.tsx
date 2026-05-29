@@ -199,7 +199,7 @@ export default function App() {
       case 'dashboard':
         return (
           <PageLayout activeView="dashboard" onNavigate={navigateTo} onLogout={handleLogout} userName={userName} title="SOURCE NODES" showBackButton={false}>
-            <Dashboard />
+            <Dashboard activeSessionId={activeSessionId} onSessionDocsChanged={bumpSessionReload} />
           </PageLayout>
         );
       case 'chat':
@@ -225,7 +225,7 @@ export default function App() {
       case 'analytics':
         return (
           <PageLayout activeView="analytics" onNavigate={navigateTo} onLogout={handleLogout} userName={userName} title="KNOWLEDGE MAP" subtitle={selectedAnalysis?.query ? "QUERY ANALYSIS" : "CORPUS ANALYTICS"}>
-            <AnalyticsResults queryData={selectedAnalysis} />
+            <AnalyticsResults queryData={selectedAnalysis} activeSessionId={activeSessionId} />
           </PageLayout>
         );
       case 'health':
