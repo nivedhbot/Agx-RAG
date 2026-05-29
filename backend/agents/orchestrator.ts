@@ -50,9 +50,8 @@ export class OrchestratorAgent {
 
       const synth = await synthesizerAgent.synthesize(scratchpad);
 
-      const goodEnough =
-        synth.confidence >= scratchpad.confidenceThreshold &&
-        contradictions.length === 0;
+      const confident = synth.confidence >= scratchpad.confidenceThreshold;
+      const goodEnough = confident && contradictions.length === 0;
 
       result = {
         ...synth,
@@ -65,6 +64,18 @@ export class OrchestratorAgent {
       };
 
       if (goodEnough) break;
+
+      // Latency optimisation: once confidence clears the threshold, skip the
+      // second retrieve→verify→synthesize pass entirely. The extra pass rarely
+      // changes a confident answer and roughly doubles query latency. Any
+      // contradictions found this pass are still returned to the UI.
+      if (confident) {
+        console.log(
+          `[orchestrator] confidence ${synth.confidence.toFixed(2)} >= threshold ` +
+            `${scratchpad.confidenceThreshold} after pass ${scratchpad.iteration} — skipping second retriever pass`,
+        );
+        break;
+      }
 
       // Refine the query for the next iteration if any room left.
       if (scratchpad.iteration < scratchpad.maxIterations) {

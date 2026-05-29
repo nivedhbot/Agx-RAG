@@ -24,6 +24,13 @@ async function getClassifier() {
   return initPromise;
 }
 
+// Load and cache the NLI model ahead of the first query so verification
+// doesn't pay the cold-start cost. No-op when NLI is disabled.
+export async function warmupNli(): Promise<void> {
+  if (!isNliEnabled()) return;
+  await getClassifier();
+}
+
 export interface NliResult {
   relation: ClaimRelation | 'neutral';
   score: number;

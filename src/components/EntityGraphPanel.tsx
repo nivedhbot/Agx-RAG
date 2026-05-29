@@ -18,6 +18,7 @@ export default function EntityGraphPanel() {
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoverEdge, setHoverEdge] = useState<{ id: string; x: number; y: number; label: string } | null>(null);
+  const [hoverNode, setHoverNode] = useState<{ id: string; x: number; y: number } | null>(null);
   const [reasoningIds, setReasoningIds] = useState<Set<string>>(new Set());
   const [reasoningQuery, setReasoningQuery] = useState<string | null>(null);
   const [highlightOn, setHighlightOn] = useState(true);
@@ -102,20 +103,19 @@ export default function EntityGraphPanel() {
             ? `LAST_QUERY · ${truncate(reasoningQuery ?? '', 48)}`
             : 'NO_QUERY_YET · RUN_A_REASONING_LAB_QUERY_TO_HIGHLIGHT_PATH'}
         </div>
-        <button
-          type="button"
-          disabled={!hasReasoning}
-          onClick={() => setHighlightOn(v => !v)}
-          className={`label-bold text-[10px] tracking-[0.2em] px-4 py-2 border-thick border-foreground transition-colors ${
-            !hasReasoning
-              ? 'bg-foreground/10 text-foreground/40 cursor-not-allowed'
-              : highlightActive
+        {hasReasoning && (
+          <button
+            type="button"
+            onClick={() => setHighlightOn(v => !v)}
+            className={`label-bold text-[10px] tracking-[0.2em] px-4 py-2 border-thick border-foreground transition-colors ${
+              highlightActive
                 ? 'bg-accent text-white'
                 : 'bg-surface text-foreground hover:bg-foreground hover:text-background'
-          }`}
-        >
-          {highlightActive ? 'HIDE_REASONING_PATH' : 'SHOW_REASONING_PATH'}
-        </button>
+            }`}
+          >
+            {highlightActive ? 'HIDE_REASONING_PATH' : 'SHOW_REASONING_PATH'}
+          </button>
+        )}
       </div>
       <div className="flex flex-col lg:flex-row gap-0">
         <div className="flex-1 relative bg-muted-background grid-bg border-r-0 lg:border-r border-foreground/10 min-h-[520px]">
@@ -169,6 +169,8 @@ export default function EntityGraphPanel() {
                     key={node.id}
                     style={{ cursor: 'pointer' }}
                     onClick={() => setSelectedId(prev => (prev === node.id ? null : node.id))}
+                    onMouseEnter={() => setHoverNode({ id: node.id, x: p.x, y: p.y - r - 6 })}
+                    onMouseLeave={() => setHoverNode(prev => (prev?.id === node.id ? null : prev))}
                   >
                     <circle
                       cx={p.x}
@@ -220,6 +222,34 @@ export default function EntityGraphPanel() {
                 </text>
               </g>
             )}
+
+            {hoverNode && (() => {
+              const full = hoverNode.id.toUpperCase();
+              const tw = Math.max(40, full.length * 6 + 16);
+              return (
+                <g pointerEvents="none">
+                  <rect
+                    x={hoverNode.x - tw / 2}
+                    y={hoverNode.y - 18}
+                    width={tw}
+                    height={18}
+                    fill="#1C1410"
+                  />
+                  <text
+                    x={hoverNode.x}
+                    y={hoverNode.y - 5}
+                    textAnchor="middle"
+                    fontFamily="Inter, Arial, sans-serif"
+                    fontSize={9}
+                    fontWeight={700}
+                    fill="#FFFFFF"
+                    style={{ letterSpacing: '0.08em', textTransform: 'uppercase' }}
+                  >
+                    {full}
+                  </text>
+                </g>
+              );
+            })()}
           </svg>
 
           <div className="absolute bottom-4 left-4 bg-white border border-foreground/20 p-3 space-y-2 shadow-md">
@@ -407,8 +437,20 @@ function layoutNodes(entities: EntityNode[], W: number, H: number) {
   }
 
   const maxRadius = Math.min(W, H) / 2 - 40;
+  // Spread the central cluster so inner-ring nodes don't overlap. This panel
+  // uses a deterministic ring layout rather than d3-force, so the requested
+  // "charge strength -300" repulsion is expressed here as (a) a minimum radius
+  // floor that pushes the first populated ring well off centre and (b) a
+  // power-curve distribution that fans the inner rings outward.
+  const MIN_RING_RADIUS = 70;
   rings.forEach((ringNodes, idx) => {
-    const radius = rings.length === 1 ? 0 : (idx / Math.max(rings.length - 1, 1)) * maxRadius;
+    let radius: number;
+    if (rings.length === 1) {
+      radius = 0;
+    } else {
+      const t = Math.pow(idx / Math.max(rings.length - 1, 1), 0.7);
+      radius = idx === 0 ? 0 : MIN_RING_RADIUS + t * (maxRadius - MIN_RING_RADIUS);
+    }
     const phase = -Math.PI / 2 + (idx % 2) * 0.18;
     ringNodes.forEach((node, i) => {
       if (radius === 0) {

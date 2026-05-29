@@ -28,6 +28,13 @@ export class VectorStore {
     return this.extractor;
   }
 
+  // Load and cache the embedding model ahead of the first query so queries
+  // don't pay the cold-start cost. Safe to call multiple times — the instance
+  // is reused once initialised.
+  async warmup() {
+    await this.getExtractor();
+  }
+
   private async getBackend(): Promise<VectorBackend> {
     if (!this.backend) this.backend = await pickBackend();
     return this.backend;

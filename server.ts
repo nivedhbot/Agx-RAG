@@ -17,6 +17,7 @@ import { llmGenerator } from './backend/llmGenerator.js';
 import { orchestratorAgent } from './backend/agents/orchestrator.js';
 import { settings } from './backend/settings.js';
 import { metrics } from './backend/metrics.js';
+import { warmupNli, isNliEnabled } from './backend/agents/nli.js';
 
 async function startServer() {
   const app = express();
@@ -26,6 +27,19 @@ async function startServer() {
   await settings.load();
   await vectorStore.load();
   await graphBuilder.load();
+
+  // Warm the embedding + NLI models at startup so the first query doesn't pay
+  // the cold-start initialisation cost (previously 20-100s on first query).
+  // Both instances are cached at module level and reused by every query.
+  const modelsStart = Date.now();
+  await Promise.all([
+    vectorStore.warmup(),
+    warmupNli(),
+  ]);
+  console.log(
+    `[models] embedding + NLI ready in ${Date.now() - modelsStart}ms` +
+      (isNliEnabled() ? '' : ' (NLI disabled — heuristic fallback)'),
+  );
 
   // Middleware
   app.use(cors());

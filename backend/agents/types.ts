@@ -104,16 +104,20 @@ export async function timed<T>(
   const start = Date.now();
   try {
     const out = await fn();
-    scratchpad.trace.push({ agent, action, detail, durationMs: Date.now() - start, meta });
+    const durationMs = Date.now() - start;
+    scratchpad.trace.push({ agent, action, detail, durationMs, meta });
+    console.log(`[step] ${agent.toUpperCase()} ${action} ${durationMs}ms`);
     return out;
   } catch (err) {
+    const durationMs = Date.now() - start;
     scratchpad.trace.push({
       agent,
       action,
       detail: `error: ${(err as Error)?.message ?? String(err)}`,
-      durationMs: Date.now() - start,
+      durationMs,
       meta,
     });
+    console.log(`[step] ${agent.toUpperCase()} ${action} ${durationMs}ms (error)`);
     throw err;
   }
 }
