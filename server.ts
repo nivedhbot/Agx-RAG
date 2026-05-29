@@ -18,6 +18,7 @@ import { orchestratorAgent } from './backend/agents/orchestrator.js';
 import { settings } from './backend/settings.js';
 import { metrics } from './backend/metrics.js';
 import { warmupNli, isNliEnabled } from './backend/agents/nli.js';
+import { runMigrations } from './backend/migrations.js';
 
 async function startServer() {
   const app = express();
@@ -25,6 +26,11 @@ async function startServer() {
 
   // Load persistent data
   await settings.load();
+
+  // Apply auth + multi-session schema migrations before anything else touches
+  // the database. No-op when DATABASE_URL is unset/unreachable.
+  await runMigrations();
+
   await vectorStore.load();
   await graphBuilder.load();
 
