@@ -25,16 +25,18 @@ interface PageLayoutProps {
   subtitle?: string;
   showBackButton?: boolean;
   onLogout?: () => void;
+  userName?: string | null;
 }
 
-export default function PageLayout({ 
-  children, 
-  activeView, 
-  onNavigate, 
-  title, 
+export default function PageLayout({
+  children,
+  activeView,
+  onNavigate,
+  title,
   subtitle,
   showBackButton = true,
-  onLogout
+  onLogout,
+  userName
 }: PageLayoutProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -89,13 +91,25 @@ export default function PageLayout({
           )}
 
           {onLogout && (
-            <button
-              onClick={onLogout}
-              className="flex items-center gap-2 px-4 md:px-6 py-2 border-thin border-foreground bg-surface text-foreground hover:bg-foreground hover:text-background transition-colors label-bold text-[10px] md:text-xs"
-            >
-              <Lock size={14} />
-              <span className="hidden sm:inline">LOGOUT</span>
-            </button>
+            <div className="flex items-center gap-3">
+              {/* Logged-in user indicator — display name (falls back to a
+                  generic label). Hidden on small screens to preserve the
+                  header's single-row layout. */}
+              <div className="hidden md:flex items-center gap-2 px-4 py-2 border-thin border-foreground bg-muted-background label-bold text-[10px] md:text-xs">
+                <span className="w-2 h-2 bg-accent rounded-full" />
+                <span className="text-on-surface-variant">USER</span>
+                <span className="text-foreground tracking-tight uppercase max-w-[160px] truncate">
+                  {userName || 'OPERATOR'}
+                </span>
+              </div>
+              <button
+                onClick={onLogout}
+                className="flex items-center gap-2 px-4 md:px-6 py-2 border-thin border-foreground bg-surface text-foreground hover:bg-foreground hover:text-background transition-colors label-bold text-[10px] md:text-xs"
+              >
+                <Lock size={14} />
+                <span className="hidden sm:inline">LOGOUT</span>
+              </button>
+            </div>
           )}
         </div>
       </header>

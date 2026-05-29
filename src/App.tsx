@@ -10,6 +10,7 @@ import PageLayout from './components/PageLayout';
 import Footer from './components/Footer';
 import AuthPage, { TOKEN_KEY } from './pages/AuthPage';
 import { authFetch } from './lib/api';
+import { logout as authLogout } from './lib/auth';
 
 interface User {
   id: string;
@@ -103,16 +104,17 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    const token = localStorage.getItem(TOKEN_KEY);
-    // Best-effort server notification; JWT is stateless so this just 200s.
-    fetch('/api/auth/logout', {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    }).catch(() => {});
-    localStorage.removeItem(TOKEN_KEY);
+    // Centralised in lib/auth: best-effort server logout, clears the token,
+    // and dispatches `agx:unauthorized`. The listener above resets user state
+    // and routes to auth; we also send the view to landing for a clean exit.
+    authLogout();
     setUser(null);
     setCurrentView('landing');
   };
+
+  // Label for the nav user indicator: display name, then email, then a generic
+  // fallback so the chip never renders empty.
+  const userName = user?.display_name || user?.email || 'OPERATOR';
 
   // Create a fresh session and switch to it (empty conversation).
   const handleNewSession = async () => {
@@ -196,13 +198,13 @@ export default function App() {
         return <AuthPage onAuthSuccess={handleAuthSuccess} />;
       case 'dashboard':
         return (
-          <PageLayout activeView="dashboard" onNavigate={navigateTo} onLogout={handleLogout} title="SOURCE NODES" showBackButton={false}>
+          <PageLayout activeView="dashboard" onNavigate={navigateTo} onLogout={handleLogout} userName={userName} title="SOURCE NODES" showBackButton={false}>
             <Dashboard />
           </PageLayout>
         );
       case 'chat':
         return (
-          <PageLayout activeView="chat" onNavigate={navigateTo} onLogout={handleLogout} title="REASONING LAB">
+          <PageLayout activeView="chat" onNavigate={navigateTo} onLogout={handleLogout} userName={userName} title="REASONING LAB">
             <ChatDashboard
               query={chatQuery}
               setQuery={setChatQuery}
@@ -222,19 +224,19 @@ export default function App() {
         );
       case 'analytics':
         return (
-          <PageLayout activeView="analytics" onNavigate={navigateTo} onLogout={handleLogout} title="KNOWLEDGE MAP" subtitle={selectedAnalysis?.query ? "QUERY ANALYSIS" : "CORPUS ANALYTICS"}>
+          <PageLayout activeView="analytics" onNavigate={navigateTo} onLogout={handleLogout} userName={userName} title="KNOWLEDGE MAP" subtitle={selectedAnalysis?.query ? "QUERY ANALYSIS" : "CORPUS ANALYTICS"}>
             <AnalyticsResults queryData={selectedAnalysis} />
           </PageLayout>
         );
       case 'health':
         return (
-          <PageLayout activeView="health" onNavigate={navigateTo} onLogout={handleLogout} title="SYSTEM HEALTH">
+          <PageLayout activeView="health" onNavigate={navigateTo} onLogout={handleLogout} userName={userName} title="SYSTEM HEALTH">
             <SystemHealth />
           </PageLayout>
         );
       case 'settings':
         return (
-          <PageLayout activeView="settings" onNavigate={navigateTo} onLogout={handleLogout} title="CONFIGURATION">
+          <PageLayout activeView="settings" onNavigate={navigateTo} onLogout={handleLogout} userName={userName} title="CONFIGURATION">
             <SettingsPage />
           </PageLayout>
         );
