@@ -19,6 +19,8 @@ import { settings } from './backend/settings.js';
 import { metrics } from './backend/metrics.js';
 import { warmupNli, isNliEnabled } from './backend/agents/nli.js';
 import { runMigrations } from './backend/migrations.js';
+import { requireAuth } from './backend/auth.js';
+import { authRouter } from './backend/authRoutes.js';
 
 async function startServer() {
   const app = express();
@@ -50,6 +52,9 @@ async function startServer() {
   // Middleware
   app.use(cors());
   app.use(express.json());
+
+  // Auth routes (register/login/me/logout) — public, no token required.
+  app.use('/api/auth', authRouter);
 
   // Multer for uploads
   const upload = multer({ storage: multer.memoryStorage() });
@@ -90,7 +95,7 @@ async function startServer() {
   });
 
   // TASK 1: Upload (Task 2, 3, 4 integration)
-  app.post('/api/upload', upload.single('file'), async (req, res) => {
+  app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
@@ -122,7 +127,7 @@ async function startServer() {
   // Query — CGoT-MARS multi-agent pipeline.
   // Set toggles.useAgentPipeline=false (via /api/settings) to fall back to the
   // legacy single-pass pipeline.
-  app.post('/api/query', async (req, res) => {
+  app.post('/api/query', requireAuth, async (req, res) => {
     const { query } = req.body;
     if (!query) return res.status(400).json({ error: 'Query is required' });
 
@@ -227,7 +232,7 @@ async function startServer() {
   });
 
   // TASK 1: Get Documents
-  app.get('/api/documents', (req, res) => {
+  app.get('/api/documents', requireAuth, (req, res) => {
     // Derive documents from vector store chunks
     const chunks = vectorStore.getAllChunks();
     const docMap = new Map();
@@ -247,7 +252,7 @@ async function startServer() {
   });
 
   // TASK 1: Get Graph
-  app.get('/api/graph', (req, res) => {
+  app.get('/api/graph', requireAuth, (req, res) => {
     res.json(graphBuilder.exportFull());
   });
 
