@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavSection, SwissButton, Menu, X } from './components/SwissUI';
 import LandingPage from './components/LandingPage';
 import Dashboard from './components/Dashboard';
@@ -8,6 +8,16 @@ import SettingsPage from './components/SettingsPage';
 import SystemHealth from './components/SystemHealth';
 import PageLayout from './components/PageLayout';
 import Footer from './components/Footer';
+import AuthPage, { TOKEN_KEY } from './pages/AuthPage';
+
+interface User {
+  id: string;
+  email: string;
+  display_name: string | null;
+}
+
+// Views that require a valid JWT. Landing is public.
+const PROTECTED_VIEWS = ['dashboard', 'chat', 'analytics', 'health', 'settings'];
 
 export default function App() {
   const [currentView, setCurrentView] = React.useState('landing');
@@ -20,22 +30,91 @@ export default function App() {
   const [chatQuery, setChatQuery] = useState('');
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
 
+  // Auth state. `user` null = signed out. `authChecked` gates the first render
+  // until we've validated any stored token, avoiding a redirect race.
+  const [user, setUser] = useState<User | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  // Validate a stored token once on mount via /api/auth/me. Only an explicit
+  // 401 clears the token; transient errors (DB down / network) leave it intact.
+  useEffect(() => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) {
+      setAuthChecked(true);
+      return;
+    }
+    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+      .then(async res => {
+        if (res.status === 401) {
+          localStorage.removeItem(TOKEN_KEY);
+          return;
+        }
+        if (res.ok) {
+          const data = await res.json();
+          setUser(data.user);
+        }
+      })
+      .catch(() => {
+        /* network/transient error — keep the token, stay on landing */
+      })
+      .finally(() => setAuthChecked(true));
+  }, []);
+
   const navigateTo = (view: string) => {
+    // Gate protected views behind a valid session.
+    if (PROTECTED_VIEWS.includes(view) && !user) {
+      setCurrentView('auth');
+      setIsMenuOpen(false);
+      return;
+    }
     setCurrentView(view);
     setIsMenuOpen(false);
   };
 
+  const handleAuthSuccess = (u: User) => {
+    setUser(u);
+    setCurrentView('dashboard'); // Terminal dashboard
+  };
+
+  const handleLogout = () => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    // Best-effort server notification; JWT is stateless so this just 200s.
+    fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    }).catch(() => {});
+    localStorage.removeItem(TOKEN_KEY);
+    setUser(null);
+    setCurrentView('landing');
+  };
+
+  // Hold the first paint until the stored token has been checked.
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <span className="label-bold text-xs text-muted-text">INITIALIZING_SESSION...</span>
+      </div>
+    );
+  }
+
   const renderView = () => {
+    // Defense-in-depth: never render a protected view without a session.
+    if (PROTECTED_VIEWS.includes(currentView) && !user) {
+      return <AuthPage onAuthSuccess={handleAuthSuccess} />;
+    }
+
     switch (currentView) {
-      case 'dashboard': 
+      case 'auth':
+        return <AuthPage onAuthSuccess={handleAuthSuccess} />;
+      case 'dashboard':
         return (
-          <PageLayout activeView="dashboard" onNavigate={navigateTo} title="SOURCE NODES" showBackButton={false}>
+          <PageLayout activeView="dashboard" onNavigate={navigateTo} onLogout={handleLogout} title="SOURCE NODES" showBackButton={false}>
             <Dashboard />
           </PageLayout>
         );
-      case 'chat': 
+      case 'chat':
         return (
-          <PageLayout activeView="chat" onNavigate={navigateTo} title="REASONING LAB">
+          <PageLayout activeView="chat" onNavigate={navigateTo} onLogout={handleLogout} title="REASONING LAB">
             <ChatDashboard
               query={chatQuery}
               setQuery={setChatQuery}
@@ -48,21 +127,21 @@ export default function App() {
               }} />
           </PageLayout>
         );
-      case 'analytics': 
+      case 'analytics':
         return (
-          <PageLayout activeView="analytics" onNavigate={navigateTo} title="KNOWLEDGE MAP" subtitle={selectedAnalysis?.query ? "QUERY ANALYSIS" : "CORPUS ANALYTICS"}>
+          <PageLayout activeView="analytics" onNavigate={navigateTo} onLogout={handleLogout} title="KNOWLEDGE MAP" subtitle={selectedAnalysis?.query ? "QUERY ANALYSIS" : "CORPUS ANALYTICS"}>
             <AnalyticsResults queryData={selectedAnalysis} />
           </PageLayout>
         );
       case 'health':
         return (
-          <PageLayout activeView="health" onNavigate={navigateTo} title="SYSTEM HEALTH">
+          <PageLayout activeView="health" onNavigate={navigateTo} onLogout={handleLogout} title="SYSTEM HEALTH">
             <SystemHealth />
           </PageLayout>
         );
       case 'settings':
         return (
-          <PageLayout activeView="settings" onNavigate={navigateTo} title="CONFIGURATION">
+          <PageLayout activeView="settings" onNavigate={navigateTo} onLogout={handleLogout} title="CONFIGURATION">
             <SettingsPage />
           </PageLayout>
         );
@@ -81,30 +160,40 @@ export default function App() {
       {currentView === 'landing' && (
         <nav className="sticky top-0 z-50 w-full bg-surface border-b-thick border-foreground px-6 md:px-12 py-4">
           <div className="max-w-7xl mx-auto flex justify-between items-center">
-            <div 
+            <div
               className="headline-lg text-[24px] tracking-tighter text-accent transition-transform active:scale-95 cursor-pointer uppercase"
               onClick={() => navigateTo('landing')}
             >
               AGX-RAG
             </div>
-            
+
             {/* Desktop Nav */}
             <div className="hidden md:flex gap-8 items-center">
               <NavSection active={currentView === 'landing'} onClick={() => navigateTo('landing')}>RESEARCH</NavSection>
               <NavSection onClick={() => navigateTo('chat')}>LAB</NavSection>
               <NavSection onClick={() => navigateTo('dashboard')}>TERMINAL</NavSection>
-              
-              <SwissButton 
-                variant="accent" 
-                className="ml-4 py-2 px-6"
-                onClick={() => navigateTo('dashboard')}
-              >
-                INITIALIZE_
-              </SwissButton>
+
+              {user ? (
+                <SwissButton
+                  variant="secondary"
+                  className="ml-4 py-2 px-6"
+                  onClick={handleLogout}
+                >
+                  LOGOUT_
+                </SwissButton>
+              ) : (
+                <SwissButton
+                  variant="accent"
+                  className="ml-4 py-2 px-6"
+                  onClick={() => navigateTo('dashboard')}
+                >
+                  INITIALIZE_
+                </SwissButton>
+              )}
             </div>
 
             {/* Mobile Menu Toggle */}
-            <button 
+            <button
               className="md:hidden w-10 h-10 bg-foreground text-background flex items-center justify-center border-thick border-foreground"
               onClick={() => setIsMenuOpen(!isMenuOpen)}
             >
@@ -120,13 +209,23 @@ export default function App() {
                 <NavSection onClick={() => navigateTo('chat')}>LAB</NavSection>
                 <NavSection onClick={() => navigateTo('dashboard')}>TERMINAL</NavSection>
               </div>
-              <SwissButton 
-                variant="accent" 
-                className="w-full py-4 text-center"
-                onClick={() => navigateTo('dashboard')}
-              >
-                INITIALIZE_
-              </SwissButton>
+              {user ? (
+                <SwissButton
+                  variant="secondary"
+                  className="w-full py-4 text-center"
+                  onClick={handleLogout}
+                >
+                  LOGOUT_
+                </SwissButton>
+              ) : (
+                <SwissButton
+                  variant="accent"
+                  className="w-full py-4 text-center"
+                  onClick={() => navigateTo('dashboard')}
+                >
+                  INITIALIZE_
+                </SwissButton>
+              )}
             </div>
           )}
         </nav>

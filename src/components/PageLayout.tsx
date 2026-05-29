@@ -11,7 +11,8 @@ import {
   Shield,
   Zap,
   LayoutDashboard,
-  Terminal
+  Terminal,
+  Lock
 } from './SwissUI';
 
 import Footer from './Footer';
@@ -23,6 +24,7 @@ interface PageLayoutProps {
   title: string;
   subtitle?: string;
   showBackButton?: boolean;
+  onLogout?: () => void;
 }
 
 export default function PageLayout({ 
@@ -31,7 +33,8 @@ export default function PageLayout({
   onNavigate, 
   title, 
   subtitle,
-  showBackButton = true
+  showBackButton = true,
+  onLogout
 }: PageLayoutProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -73,16 +76,28 @@ export default function PageLayout({
           </nav>
         </div>
         
-        {showBackButton && (
-          <button 
-            onClick={() => onNavigate('dashboard')}
-            className="flex items-center gap-2 px-4 md:px-6 py-2 border-thin border-foreground bg-primary text-background hover:bg-foreground transition-colors label-bold text-[10px] md:text-xs shadow-[4px_4px_0px_#00000020]"
-          >
-            <ArrowLeft size={16} />
-            <span className="hidden sm:inline">BACK TO TERMINAL</span>
-            <span className="sm:hidden">BACK</span>
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {showBackButton && (
+            <button
+              onClick={() => onNavigate('dashboard')}
+              className="flex items-center gap-2 px-4 md:px-6 py-2 border-thin border-foreground bg-primary text-background hover:bg-foreground transition-colors label-bold text-[10px] md:text-xs shadow-[4px_4px_0px_#00000020]"
+            >
+              <ArrowLeft size={16} />
+              <span className="hidden sm:inline">BACK TO TERMINAL</span>
+              <span className="sm:hidden">BACK</span>
+            </button>
+          )}
+
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="flex items-center gap-2 px-4 md:px-6 py-2 border-thin border-foreground bg-surface text-foreground hover:bg-foreground hover:text-background transition-colors label-bold text-[10px] md:text-xs"
+            >
+              <Lock size={14} />
+              <span className="hidden sm:inline">LOGOUT</span>
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="flex flex-1 pt-[76px]">
