@@ -475,6 +475,20 @@ function PanelShell({ children }: { children: React.ReactNode }) {
         <div className="label-bold text-[11px] tracking-[0.2em]">ENTITY_GRAPH_</div>
         <div className="label-bold text-[9px] opacity-60 tracking-widest">CO_MENTION_PROJECTION</div>
       </div>
+      {/* Clarifies that the graph is cross-document by default and what the
+          per-document filter colours mean, so users aren't unsure whether
+          they're looking at one document or all of them. */}
+      <div className="bg-muted-background border-b border-foreground/10 px-5 py-3 space-y-1">
+        <p className="text-[11px] leading-relaxed text-foreground/70">
+          Graph representation of extracted entities and relations.
+        </p>
+        <p className="text-[11px] leading-relaxed text-foreground/70">
+          When filtering by document, sienna nodes appear in that document; gray nodes appear elsewhere.
+        </p>
+        <p className="text-[11px] leading-relaxed text-foreground/70">
+          Shared entities across documents indicate potential bridges for multi-hop reasoning.
+        </p>
+      </div>
       {children}
     </div>
   );
