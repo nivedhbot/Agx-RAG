@@ -94,6 +94,28 @@ export default function ChatDashboard({ onShowAnalysis, query, setQuery, message
     }
   };
 
+  // Delete one document from the active session: removes its chunks from the
+  // index and its single-document entities from the graph, then surfaces the
+  // graph-delta toast.
+  const handleDeleteDocument = async (docId: string, filename: string) => {
+    if (!activeSessionId) return;
+    try {
+      const res = await authFetch(`/api/sessions/${activeSessionId}/documents/${docId}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      setToast(
+        `DOCUMENT_REMOVED — GRAPH_UPDATED: ${data.nodes_removed} nodes removed, ${data.edges_removed} edges removed`,
+      );
+      window.setTimeout(() => setToast(null), 4000);
+      bumpSessionReload(); // refresh doc list + session counts
+    } catch (err: any) {
+      setToast(`DELETE_FAILED · ${String(err.message || err).toUpperCase()}`);
+      window.setTimeout(() => setToast(null), 4000);
+    }
+  };
+
   // Persist one message to the active session. Best-effort: a failure here must
   // not break the chat UX, so we swallow errors after logging.
   const persistMessage = async (
@@ -211,6 +233,7 @@ export default function ChatDashboard({ onShowAnalysis, query, setQuery, message
         documents={sessionDocuments}
         onUpload={handleUpload}
         uploading={uploading}
+        onDeleteDocument={handleDeleteDocument}
       />
 
       {/* Toast: document-added / graph-updated notification */}

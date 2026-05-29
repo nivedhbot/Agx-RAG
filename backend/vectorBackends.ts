@@ -22,6 +22,12 @@ export interface VectorBackend {
   add(chunks: StoredChunk[]): Promise<void>;
   // When sessionId is provided, search is restricted to that session's chunks.
   searchTopK(queryEmbedding: number[], topK: number, sessionId?: string): Promise<Array<StoredChunk & { score: number }>>;
+  // Remove every chunk belonging to one document (a (sessionId, source) pair).
+  // Returns the ids of the chunks that were removed so callers can prune the
+  // in-memory mirror and the entity graph. This is the "rebuild the index
+  // without those chunks" step — for Postgres it's a scoped DELETE; for JSON
+  // it rewrites the file without them.
+  deleteBySource(sessionId: string, source: string): Promise<string[]>;
   clear(): Promise<void>;
 }
 
@@ -57,6 +63,15 @@ export class JsonVectorBackend implements VectorBackend {
 
   async clear() {
     if (await fs.pathExists(this.storePath)) await fs.remove(this.storePath);
+  }
+
+  async deleteBySource(sessionId: string, source: string): Promise<string[]> {
+    const all = await this.loadAll();
+    const removed = all.filter(c => c.sessionId === sessionId && c.source === source);
+    if (removed.length === 0) return [];
+    const kept = all.filter(c => !(c.sessionId === sessionId && c.source === source));
+    await fs.writeJson(this.storePath, kept);
+    return removed.map(c => c.id);
   }
 }
 
@@ -162,6 +177,14 @@ export class PostgresVectorBackend implements VectorBackend {
 
   async clear() {
     await this.pool.query('TRUNCATE TABLE chunks');
+  }
+
+  async deleteBySource(sessionId: string, source: string): Promise<string[]> {
+    const res = await this.pool.query<{ id: string }>(
+      'DELETE FROM chunks WHERE session_id = $1 AND source = $2 RETURNING id',
+      [sessionId, source],
+    );
+    return res.rows.map(r => r.id);
   }
 
   async ping(): Promise<boolean> {

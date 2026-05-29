@@ -313,6 +313,53 @@ export class GraphBuilder {
     return Array.from(bridgingChunks);
   }
 
+  // Remove one document's chunks from a session graph, then drop any entity
+  // that is left with no chunks at all (i.e. appeared ONLY in this document).
+  // Entities still linked to other documents' chunks are kept — this is the
+  // "keep entities that appear in multiple documents" requirement.
+  //
+  // Returns how much was removed plus the resulting graph size, for the toast.
+  async removeChunks(chunkIds: string[], sessionId?: string): Promise<{
+    nodes_removed: number;
+    edges_removed: number;
+    node_count: number;
+    edge_count: number;
+  }> {
+    await this.ensureLoaded(sessionId);
+    const graph = this.graphFor(sessionId);
+
+    const beforeNodes = graph.order;
+    const beforeEdges = graph.size;
+
+    // Entities pointing at the chunks we're about to remove — candidates for
+    // orphan cleanup once their edges to these chunks are gone.
+    const candidateEntities = new Set<string>();
+    for (const id of chunkIds) {
+      if (!graph.hasNode(id)) continue;
+      for (const entity of graph.inNeighbors(id)) candidateEntities.add(entity);
+      // Dropping the node also drops its incident edges.
+      graph.dropNode(id);
+    }
+
+    // An entity that now has no outgoing edges (no remaining chunk references)
+    // appeared only in the deleted document — remove it. One that still points
+    // at another document's chunk stays.
+    for (const entity of candidateEntities) {
+      if (graph.hasNode(entity) && graph.outDegree(entity) === 0) {
+        graph.dropNode(entity);
+      }
+    }
+
+    await this.save(sessionId);
+
+    return {
+      nodes_removed: beforeNodes - graph.order,
+      edges_removed: beforeEdges - graph.size,
+      node_count: graph.order,
+      edge_count: graph.size,
+    };
+  }
+
   async save(sessionId?: string) {
     if (sessionId) {
       const g = this.graphFor(sessionId);

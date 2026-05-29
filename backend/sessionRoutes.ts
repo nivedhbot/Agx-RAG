@@ -9,6 +9,7 @@ import { Router, type Response } from 'express';
 import { getPool } from './db.js';
 import { requireAuth, type AuthedRequest } from './auth.js';
 import { graphBuilder } from './graphBuilder.js';
+import { vectorStore } from './vectorStore.js';
 
 export const sessionRouter = Router();
 
@@ -170,6 +171,61 @@ sessionRouter.post('/:id/messages', async (req: AuthedRequest, res: Response) =>
     }
 
     res.status(201).json({ title });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/sessions/:id/documents/:docId — remove ONE document from a
+// session: its chunks leave the vector index and its single-document entities
+// leave the knowledge graph. Chunks shared by no other doc and entities that
+// only appeared here are pruned; entities spanning multiple documents stay.
+// The on-disk vectorstore/sessions/{id}/ folder is intentionally left intact
+// for audit — only the index/graph state is rebuilt.
+sessionRouter.delete('/:id/documents/:docId', async (req: AuthedRequest, res: Response) => {
+  const pool = db(res);
+  if (!pool) return;
+  try {
+    const session = await ownedSession(pool, req.params.id, req.user!.id, res);
+    if (!session) return;
+
+    // Resolve the document (and its filename, which is how chunks are tagged).
+    const docRes = await pool.query(
+      'SELECT id, filename FROM session_documents WHERE id = $1 AND session_id = $2',
+      [req.params.docId, req.params.id],
+    );
+    if (docRes.rowCount === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    const filename = docRes.rows[0].filename as string;
+
+    // 1. Drop this document's chunks from the vector store (index rebuild).
+    const removedChunkIds = await vectorStore.deleteDocument(req.params.id, filename);
+
+    // 2. Prune the session graph by those chunk ids — orphaned (single-doc)
+    //    entities go, multi-doc entities stay.
+    const graphResult = await graphBuilder.removeChunks(removedChunkIds, req.params.id);
+
+    // 3. Remove the document record.
+    await pool.query('DELETE FROM session_documents WHERE id = $1', [req.params.docId]);
+
+    // 4. Remaining document count for the session.
+    const countRes = await pool.query(
+      'SELECT COUNT(*)::int AS n FROM session_documents WHERE session_id = $1',
+      [req.params.id],
+    );
+    await pool.query('UPDATE chat_sessions SET last_active = now() WHERE id = $1', [req.params.id]);
+
+    res.json({
+      deleted: req.params.docId,
+      filename,
+      chunks_removed: removedChunkIds.length,
+      document_count: countRes.rows[0].n,
+      nodes_removed: graphResult.nodes_removed,
+      edges_removed: graphResult.edges_removed,
+      node_count: graphResult.node_count,
+      edge_count: graphResult.edge_count,
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

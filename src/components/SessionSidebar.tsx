@@ -28,6 +28,8 @@ interface SessionSidebarProps {
   documents: SessionDocument[];
   onUpload: (file: File) => void;
   uploading: boolean;
+  // Delete one document from the active session (chunks + single-doc entities).
+  onDeleteDocument: (docId: string, filename: string) => void;
 }
 
 // Compact "time since" label, e.g. NOW / 4M / 3H / 2D.
@@ -45,10 +47,12 @@ function timeSince(iso: string): string {
   return `${weeks}W`;
 }
 
-export default function SessionSidebar({ activeSessionId, onSelect, onNew, reloadSignal, documents, onUpload, uploading }: SessionSidebarProps) {
+export default function SessionSidebar({ activeSessionId, onSelect, onNew, reloadSignal, documents, onUpload, uploading, onDeleteDocument }: SessionSidebarProps) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  // Document id awaiting delete confirmation (inline CANCEL/CONFIRM toast).
+  const [confirmDocId, setConfirmDocId] = useState<string | null>(null);
   const longPress = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -154,12 +158,46 @@ export default function SessionSidebar({ activeSessionId, onSelect, onNew, reloa
                   ) : (
                     <ul className="space-y-1 mb-2">
                       {documents.map(d => (
-                        <li key={d.id} className="flex items-center justify-between gap-2 text-[9px] font-mono">
-                          <span className="flex items-center gap-1 truncate">
-                            <FileText size={10} className="shrink-0 opacity-50" />
-                            <span className="truncate">{d.filename}</span>
-                          </span>
-                          <span className="shrink-0 opacity-50">{d.chunk_count} CH</span>
+                        <li key={d.id} className="text-[9px] font-mono">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="flex items-center gap-1 truncate">
+                              <FileText size={10} className="shrink-0 opacity-50" />
+                              <span className="truncate">{d.filename}</span>
+                            </span>
+                            <span className="flex items-center gap-1.5 shrink-0">
+                              <span className="opacity-50">{d.chunk_count} CH</span>
+                              <button
+                                onClick={() => setConfirmDocId(d.id)}
+                                title={`Delete ${d.filename}`}
+                                className="opacity-40 hover:opacity-100 hover:text-accent transition-opacity"
+                              >
+                                <Trash2 size={11} />
+                              </button>
+                            </span>
+                          </div>
+
+                          {/* Inline confirmation: DELETE {filename}? — CANCEL / CONFIRM */}
+                          {confirmDocId === d.id && (
+                            <div className="mt-1 mb-1 bg-foreground text-background border-thick border-accent p-2">
+                              <div className="label-bold text-[8px] tracking-widest mb-2 break-all">
+                                DELETE {d.filename.toUpperCase()}?
+                              </div>
+                              <div className="flex gap-1">
+                                <button
+                                  onClick={() => setConfirmDocId(null)}
+                                  className="flex-1 py-1 label-bold text-[8px] tracking-widest border border-background/40 hover:bg-background/10"
+                                >
+                                  CANCEL
+                                </button>
+                                <button
+                                  onClick={() => { setConfirmDocId(null); onDeleteDocument(d.id, d.filename); }}
+                                  className="flex-1 py-1 label-bold text-[8px] tracking-widest bg-accent text-white hover:bg-white hover:text-accent"
+                                >
+                                  CONFIRM
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </li>
                       ))}
                     </ul>

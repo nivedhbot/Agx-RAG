@@ -119,6 +119,19 @@ export class VectorStore {
     await backend.clear();
   }
 
+  // Remove one document's chunks (a (sessionId, source) pair) from both the
+  // persistent backend and the in-memory mirror. Returns the removed chunk ids
+  // so the caller can prune the entity graph by the same ids.
+  async deleteDocument(sessionId: string, source: string): Promise<string[]> {
+    const backend = await this.getBackend();
+    const removedIds = await backend.deleteBySource(sessionId, source);
+    if (removedIds.length > 0) {
+      const gone = new Set(removedIds);
+      this.chunks = this.chunks.filter(c => !(c.id && gone.has(c.id)));
+    }
+    return removedIds;
+  }
+
   getAllChunks() {
     return this.chunks;
   }
