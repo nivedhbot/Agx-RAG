@@ -15,6 +15,7 @@ import {
   AreaChart,
   Area,
 } from 'recharts';
+import { authFetch } from '../lib/api';
 
 interface LogEntry {
   ts: string;
@@ -46,7 +47,7 @@ export default function SystemHealth() {
     let alive = true;
     const fetchMetrics = async () => {
       try {
-        const res = await fetch('/api/health/metrics');
+        const res = await authFetch('/api/health/metrics');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         if (alive) {

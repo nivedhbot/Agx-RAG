@@ -5,6 +5,7 @@ import {
   Cpu,
   Database,
 } from './SwissUI';
+import { authFetch } from '../lib/api';
 
 interface AppSettings {
   ragWeights: { alpha: number; beta: number; gamma: number; lambda: number };
@@ -19,7 +20,7 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/settings')
+    authFetch('/api/settings')
       .then(r => r.json())
       .then(setSettings)
       .catch(e => setError(e.message));
@@ -30,7 +31,7 @@ export default function SettingsPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch('/api/settings', {
+      const res = await authFetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
@@ -50,7 +51,7 @@ export default function SettingsPage() {
     if (!confirm('PURGE_ALL_DATA — this cannot be undone. Continue?')) return;
     setBusy(true);
     try {
-      await fetch('/api/clear', { method: 'POST' });
+      await authFetch('/api/clear', { method: 'POST' });
       setSavedAt(Date.now());
     } finally {
       setBusy(false);

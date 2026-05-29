@@ -24,6 +24,20 @@ import { authRouter } from './backend/authRoutes.js';
 import { sessionRouter } from './backend/sessionRoutes.js';
 import { getPool } from './backend/db.js';
 
+// Core ownership check: does `sessionId` belong to `userId`? Returns true/false
+// and never writes a response. Throws only on DB error so callers can decide
+// the status code. Used by every session-scoped endpoint so the rule lives in
+// one place.
+async function userOwnsSession(sessionId: string, userId: string | undefined): Promise<boolean> {
+  const pool = getPool();
+  if (!pool) throw new Error('Session database unavailable');
+  const owns = await pool.query(
+    'SELECT id FROM chat_sessions WHERE id = $1 AND user_id = $2',
+    [sessionId, userId],
+  );
+  return owns.rowCount! > 0;
+}
+
 // Ownership gate for session-scoped read endpoints (/api/documents, /api/graph).
 // Requires a `session_id` query param and verifies the session belongs to the
 // authenticated user. Writes the error response itself and returns the validated
@@ -39,18 +53,13 @@ async function gateSessionRead(route: string, req: any, res: any): Promise<strin
     return null;
   }
 
-  const pool = getPool();
-  if (!pool) {
+  if (!getPool()) {
     res.status(503).json({ error: 'Session database unavailable' });
     return null;
   }
 
   try {
-    const owns = await pool.query(
-      'SELECT id FROM chat_sessions WHERE id = $1 AND user_id = $2',
-      [sessionId, userId],
-    );
-    if (owns.rowCount === 0) {
+    if (!(await userOwnsSession(sessionId, userId))) {
       console.log(`[auth] GET ${route} session_id=${sessionId} user_id=${userId} — DENIED`);
       res.status(403).json({ error: 'You do not have access to this session' });
       return null;
@@ -101,8 +110,34 @@ async function startServer() {
   // Session management routes — all gated by requireAuth inside the router.
   app.use('/api/sessions', sessionRouter);
 
-  // Multer for uploads
-  const upload = multer({ storage: multer.memoryStorage() });
+  // Multer for uploads. Bounded to avoid memory-exhaustion DoS (files are held
+  // in memory) and restricted to PDFs, which is all the processor accepts.
+  const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
+    fileFilter: (_req, file, cb) => {
+      const isPdf = file.mimetype === 'application/pdf'
+        || file.originalname.toLowerCase().endsWith('.pdf');
+      if (!isPdf) return cb(new Error('ONLY_PDF_UPLOADS_ALLOWED'));
+      cb(null, true);
+    },
+  });
+
+  // Translate multer's limit/type rejections into clean 413/415 responses
+  // instead of a generic 500.
+  const handleUpload = (req: any, res: any, next: any) => {
+    upload.single('file')(req, res, (err: any) => {
+      if (!err) return next();
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ error: `File exceeds ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB limit` });
+      }
+      if (err.message === 'ONLY_PDF_UPLOADS_ALLOWED') {
+        return res.status(415).json({ error: 'Only PDF uploads are supported' });
+      }
+      return res.status(400).json({ error: err.message || 'Upload failed' });
+    });
+  };
 
   // --- API Routes ---
 
@@ -140,7 +175,7 @@ async function startServer() {
   });
 
   // TASK 1: Upload (Task 2, 3, 4 integration)
-  app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => {
+  app.post('/api/upload', requireAuth, handleUpload, async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
@@ -153,13 +188,10 @@ async function startServer() {
 
       // If a session was given, verify the caller owns it before ingesting.
       if (sessionId) {
-        const pool = getPool();
-        if (!pool) return res.status(503).json({ error: 'Session database unavailable' });
-        const owns = await pool.query(
-          'SELECT id FROM chat_sessions WHERE id = $1 AND user_id = $2',
-          [sessionId, userId],
-        );
-        if (owns.rowCount === 0) return res.status(404).json({ error: 'Session not found' });
+        if (!getPool()) return res.status(503).json({ error: 'Session database unavailable' });
+        if (!(await userOwnsSession(sessionId, userId))) {
+          return res.status(404).json({ error: 'Session not found' });
+        }
       }
 
       console.log(`Processing file: ${req.file.originalname}${sessionId ? ` (session ${sessionId})` : ''}`);
@@ -209,6 +241,20 @@ async function startServer() {
   app.post('/api/query', requireAuth, async (req, res) => {
     const { query, sessionId } = req.body;
     if (!query) return res.status(400).json({ error: 'Query is required' });
+
+    // Retrieval is session-scoped, so a sessionId the caller doesn't own would
+    // leak another user's document chunks into the answer. Verify ownership
+    // before running the pipeline. (No sessionId = global corpus, allowed.)
+    if (sessionId) {
+      try {
+        if (!(await userOwnsSession(sessionId, (req as any).user?.id))) {
+          console.log(`[auth] POST /query session_id=${sessionId} user_id=${(req as any).user?.id} — DENIED`);
+          return res.status(403).json({ error: 'You do not have access to this session' });
+        }
+      } catch (err: any) {
+        return res.status(500).json({ error: `Ownership check failed: ${err.message}` });
+      }
+    }
 
     console.log(`Processing query: ${query}${sessionId ? ` (session ${sessionId})` : ''}`);
     const startTime = Date.now();
@@ -350,19 +396,21 @@ async function startServer() {
     res.json(graphBuilder.exportFull(sessionId));
   });
 
-  // TASK 1: Clear Corpus
-  app.post('/api/clear', async (req, res) => {
+  // Clear the GLOBAL corpus + graph. Destructive and not session-scoped, so it
+  // requires auth (previously open to any anonymous caller).
+  app.post('/api/clear', requireAuth, async (req, res) => {
     await vectorStore.clear();
     await graphBuilder.clear();
-    metrics.log('warn', 'corpus cleared');
+    metrics.log('warn', `corpus cleared by user ${(req as any).user?.id}`);
     res.json({ message: 'Corpus and Graph cleared' });
   });
 
-  // Configuration: read + write app settings.
-  app.get('/api/settings', (_req, res) => {
+  // Configuration: read + write app settings. Gated — settings control the LLM
+  // pipeline and toggles, so they must not be world-readable/writable.
+  app.get('/api/settings', requireAuth, (_req, res) => {
     res.json(settings.get());
   });
-  app.post('/api/settings', async (req, res) => {
+  app.post('/api/settings', requireAuth, async (req, res) => {
     try {
       const next = await settings.update(req.body ?? {});
       res.json(next);
@@ -371,8 +419,9 @@ async function startServer() {
     }
   });
 
-  // Real telemetry: corpus + graph + query stats + recent logs.
-  app.get('/api/health/metrics', (_req, res) => {
+  // Real telemetry: corpus + graph + query stats + recent logs. Gated — exposes
+  // internal operational data.
+  app.get('/api/health/metrics', requireAuth, (_req, res) => {
     const corpusChunks = vectorStore.getAllChunks().length;
     const graphExport = graphBuilder.exportFull();
     res.json(metrics.snapshot(corpusChunks, graphExport.node_count, graphExport.edge_count));

@@ -212,7 +212,7 @@ export default function AnalyticsResults({ queryData, activeSessionId }: {
   }, [activeSessionId]);
 
   React.useEffect(() => {
-    fetch('/api/health/metrics')
+    authFetch('/api/health/metrics')
       .then(res => (res.ok ? res.json() : null))
       .then(json => {
         if (json) setGraphMetrics({ graphNodes: json.graphNodes ?? 0, graphEdges: json.graphEdges ?? 0 });

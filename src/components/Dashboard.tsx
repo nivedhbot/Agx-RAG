@@ -80,7 +80,7 @@ export default function Dashboard({ activeSessionId, onSessionDocsChanged }: {
   const handleClearCorpus = async () => {
     if (!confirm('Are you sure you want to clear the entire corpus?')) return;
     try {
-      await fetch('/api/clear', { method: 'POST' });
+      await authFetch('/api/clear', { method: 'POST' });
       await fetchDocuments();
     } catch (err) {
       console.error('Clear failed:', err);
