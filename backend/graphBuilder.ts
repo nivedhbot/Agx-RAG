@@ -190,11 +190,14 @@ export class GraphBuilder {
       if (!graph.hasNode(e1) || !graph.hasNode(e2)) continue;
 
       // Check if edge already exists and update weight, or create new edge
-      const existingEdge = graph.findEdge(e1, e2);
-      if (existingEdge) {
-        const attrs = graph.getEdgeAttributes(existingEdge);
-        graph.setEdgeAttribute(existingEdge, 'weight', (attrs.weight || 0) + count);
-      } else {
+      try {
+        const existingEdge = graph.edge(e1, e2);
+        if (existingEdge) {
+          const attrs = graph.getEdgeAttributes(existingEdge);
+          graph.setEdgeAttribute(existingEdge, 'weight', (attrs.weight || 0) + count);
+        }
+      } catch {
+        // Edge doesn't exist, create it
         graph.addEdge(e1, e2, { type: 'co-occurs', weight: count });
       }
     }
@@ -305,16 +308,35 @@ export class GraphBuilder {
         const e2 = entityArray[j];
 
         // Check if there's a co-occurrence edge in either direction
-        const edge = graph.findEdge(e1, e2) || graph.findEdge(e2, e1);
-        if (edge) {
-          const attrs = graph.getEdgeAttributes(edge);
-          edges.push({
-            id: `${e1}<->${e2}`,
-            source: e1,
-            target: e2,
-            label: 'co-occurs',
-            weight: attrs.weight || 1.0
-          });
+        try {
+          const edge = graph.edge(e1, e2);
+          if (edge) {
+            const attrs = graph.getEdgeAttributes(edge);
+            edges.push({
+              id: `${e1}<->${e2}`,
+              source: e1,
+              target: e2,
+              label: 'co-occurs',
+              weight: attrs.weight || 1.0
+            });
+          }
+        } catch {
+          // Try reverse direction
+          try {
+            const edge = graph.edge(e2, e1);
+            if (edge) {
+              const attrs = graph.getEdgeAttributes(edge);
+              edges.push({
+                id: `${e1}<->${e2}`,
+                source: e1,
+                target: e2,
+                label: 'co-occurs',
+                weight: attrs.weight || 1.0
+              });
+            }
+          } catch {
+            // No edge exists
+          }
         }
       }
     }

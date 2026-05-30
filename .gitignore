@@ -8,3 +8,5 @@ coverage/
 vectorstore/
 .last-query.json
 .dev-server.log
+ADMIN_AND_SESSION_GUIDE.md
+scripts/setup_admin.js
