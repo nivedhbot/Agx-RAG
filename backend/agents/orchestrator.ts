@@ -14,13 +14,14 @@ export class OrchestratorAgent {
     const start = Date.now();
     const scratchpad = newScratchpad(query, sessionId);
 
-    // 1. Decompose into sub-queries (single LLM call, cheap).
-    scratchpad.subQueries = await this.decompose(scratchpad);
-    // 2. Pick the working query: original or first sub-query.
-    const workingQuery = scratchpad.subQueries[0] ?? query;
-
-    // 3. Expand for recall.
-    scratchpad.expandedQueries = await retrieverAgent.expandQuery(workingQuery);
+    // 1. Decompose into sub-queries and expand for recall in parallel.
+    // expandQuery runs on the original query concurrently; sub-query result merged after.
+    const [subQueries, expandedQueries] = await Promise.all([
+      this.decompose(scratchpad),
+      retrieverAgent.expandQuery(query),
+    ]);
+    scratchpad.subQueries = subQueries;
+    scratchpad.expandedQueries = expandedQueries;
 
     // 4. Reasoning loop.
     let result: AgentRunResult | null = null;

@@ -60,8 +60,8 @@ export class RetrieverAgent {
 
   private async searchAll(queries: string[], topK: number, sessionId?: string): Promise<RetrievedChunk[]> {
     const seen = new Map<string, RetrievedChunk>();
-    for (const q of queries) {
-      const chunks = await ragPipeline.process(q, topK, sessionId);
+    const results = await Promise.all(queries.map(q => ragPipeline.process(q, topK, sessionId)));
+    for (const chunks of results) {
       for (const c of chunks) {
         const existing = seen.get(c.id);
         if (!existing || c.finalScore > existing.finalScore) {

@@ -88,6 +88,27 @@ export default function Dashboard({ activeSessionId, onSessionDocsChanged, isAdm
     }
   };
 
+  const handleDeleteDocument = async (docId: string, filename: string) => {
+    if (!confirm(`Delete "${filename}"? This will remove all its chunks and entities from the session.`)) return;
+    if (!activeSessionId) return;
+
+    try {
+      const res = await authFetch(`/api/sessions/${activeSessionId}/documents/${docId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        await fetchDocuments();
+        onSessionDocsChanged?.();
+      } else {
+        const data = await res.json();
+        alert(`Delete failed: ${data.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error('Delete failed:', err);
+      alert('Delete failed. Check console for details.');
+    }
+  };
+
   const totalChunks = documents.reduce((acc, doc) => acc + (doc.chunks || 0), 0);
 
   return (
@@ -236,7 +257,11 @@ export default function Dashboard({ activeSessionId, onSessionDocsChanged, isAdm
                           <button className="opacity-30 hover:opacity-100 hover:text-accent transition-all">
                             <Eye size={18} />
                           </button>
-                          <button className="opacity-30 hover:opacity-100 hover:text-red-600 transition-all">
+                          <button
+                            className="opacity-30 hover:opacity-100 hover:text-red-600 transition-all"
+                            onClick={() => handleDeleteDocument(doc.id, doc.name)}
+                            title="Delete document"
+                          >
                             <Trash2 size={18} />
                           </button>
                         </div>
