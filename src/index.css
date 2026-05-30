@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-family-sans: "Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-family-mono: "JetBrains Mono", ui-monospace, "Menlo", "Monaco", "Cascadia Mono", "Segoe UI Mono", "Roboto Mono", "Oxygen Mono", "Ubuntu Monospace", "Source Code Pro", "Fira Mono", "Droid Sans Mono", "Courier New", monospace;
 
   --color-background: #F5F0E8;
   --color-foreground: #1C1410;
@@ -23,10 +23,10 @@
   --color-surface-container: #f2ede5;
   --color-surface-container-high: #ece8e0;
   --color-surface-container-highest: #e7e2da;
-  
+
   --color-primary: #a23900;
   --color-primary-container: #c4501a;
-  
+
   --spacing-p-8: 2rem;
   --spacing-p-12: 3rem;
   --border-width-thin: 2px;
@@ -35,28 +35,37 @@
 
 @layer base {
   body {
-    @apply bg-background text-body-text font-sans antialiased;
+    @apply bg-background text-body-text antialiased;
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
   }
 }
 
 @layer components {
   .headline-xl {
-    @apply text-[64px] font-[900] leading-[1.1] -tracking-[0.05em] uppercase;
+    @apply text-[64px] leading-[1.1] -tracking-[0.05em] uppercase;
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    font-weight: 900;
   }
   .headline-lg {
-    @apply text-[40px] font-[900] leading-[1.2] -tracking-[0.04em] uppercase;
+    @apply text-[40px] leading-[1.2] -tracking-[0.04em] uppercase;
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    font-weight: 900;
   }
   .label-bold {
-    @apply text-[12px] font-[700] leading-[1] tracking-[0.15em] uppercase;
+    @apply text-[12px] leading-[1] tracking-[0.15em] uppercase;
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    font-weight: 700;
   }
   .section-number {
-    @apply text-[18px] font-[700] text-accent;
+    @apply text-[18px] text-accent;
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    font-weight: 700;
   }
-  
+
   .swiss-border {
     @apply border-foreground border-thick;
   }
-  
+
   .swiss-border-thin {
     @apply border-foreground border-thin;
   }
