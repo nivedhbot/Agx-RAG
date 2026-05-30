@@ -96,29 +96,54 @@ export class GraphBuilder {
   // Returns lowercase, deduped entities. Bert path merges WordPiece tokens by
   // their IOB tags. Compromise path is the original behaviour.
   private async extractEntities(text: string): Promise<string[]> {
+    let nerEntities: string[] = [];
+
     if (this.useBertNer()) {
       try {
         const ner = await this.getNer();
         const tokens: any[] = await ner(text);
-        const merged = mergeBertTokens(tokens);
-        return uniqueLower(merged);
+        nerEntities = mergeBertTokens(tokens);
       } catch (err) {
         console.warn('[ner] BERT failed, falling back to compromise:', (err as Error).message);
       }
     }
+
     const doc = nlp(text);
-    const entities = [
-      ...doc.organizations().out('array'),
-      ...doc.people().out('array'),
-      ...doc.places().out('array'),
-      ...doc.topics().out('array'),
-    ];
-    return uniqueLower(entities);
+
+    // Primary NER extraction (if BERT didn't run or failed)
+    if (nerEntities.length === 0) {
+      nerEntities = [
+        ...doc.organizations().out('array'),
+        ...doc.people().out('array'),
+        ...doc.places().out('array'),
+        ...doc.topics().out('array'),
+      ];
+    }
+
+    // Secondary extraction: noun chunks for technical terms
+    const nounChunks: string[] = [];
+    const nouns = doc.nouns().out('array');
+    for (const noun of nouns) {
+      const words = noun.trim().split(/\s+/);
+      // Keep multi-word noun phrases (2-5 words) and filter stop-word-only chunks
+      if (words.length >= 2 && words.length <= 5 && !isStopWordOnly(words)) {
+        nounChunks.push(noun);
+      }
+    }
+
+    // Merge NER entities and noun chunks, preferring NER when overlapping
+    const allEntities = [...nerEntities, ...nounChunks];
+    const filtered = allEntities
+      .map(e => stripEntity(e))
+      .filter(e => isValidEntity(e));
+
+    return uniqueLower(filtered);
   }
 
   /**
    * Update graph with new chunks.
    * Extracts entities and creates edges [Entity] -> [Chunk]
+   * Also creates co-occurrence edges between entities that appear together
    */
   async updateGraph(chunks: Chunk[], sessionId?: string): Promise<{ entitiesExtracted: number }> {
     await this.ensureLoaded(sessionId);
@@ -128,6 +153,9 @@ export class GraphBuilder {
     // caller can confirm "N entities extracted" for this specific document.
     const extracted = new Set<string>();
 
+    // Track co-occurrences: Map<entity1-entity2, count>
+    const cooccurrences = new Map<string, number>();
+
     for (const chunk of chunks) {
       if (!chunk.id) continue;
 
@@ -135,13 +163,39 @@ export class GraphBuilder {
         graph.addNode(chunk.id, { type: 'chunk', text: chunk.text, source: chunk.source });
       }
 
-      const entities = (await this.extractEntities(chunk.text)).filter(e => e.length > 2);
+      const entities = await this.extractEntities(chunk.text);
       for (const entity of entities) {
         extracted.add(entity);
         if (!graph.hasNode(entity)) {
           graph.addNode(entity, { type: 'entity' });
         }
         graph.addDirectedEdge(entity, chunk.id);
+      }
+
+      // Create co-occurrence edges between entities in the same chunk
+      for (let i = 0; i < entities.length; i++) {
+        for (let j = i + 1; j < entities.length; j++) {
+          const e1 = entities[i];
+          const e2 = entities[j];
+          // Canonical ordering to avoid duplicate keys
+          const key = e1 < e2 ? `${e1}::${e2}` : `${e2}::${e1}`;
+          cooccurrences.set(key, (cooccurrences.get(key) || 0) + 1);
+        }
+      }
+    }
+
+    // Add co-occurrence edges with frequency-based weights
+    for (const [key, count] of cooccurrences.entries()) {
+      const [e1, e2] = key.split('::');
+      if (!graph.hasNode(e1) || !graph.hasNode(e2)) continue;
+
+      // Check if edge already exists and update weight, or create new edge
+      const existingEdge = graph.findEdge(e1, e2);
+      if (existingEdge) {
+        const attrs = graph.getEdgeAttributes(existingEdge);
+        graph.setEdgeAttribute(existingEdge, 'weight', (attrs.weight || 0) + count);
+      } else {
+        graph.addEdge(e1, e2, { type: 'co-occurs', weight: count });
       }
     }
 
@@ -243,6 +297,28 @@ export class GraphBuilder {
       }
     }
 
+    // Add co-occurrence edges between included entities
+    const entityArray = Array.from(includedEntityIds);
+    for (let i = 0; i < entityArray.length; i++) {
+      for (let j = i + 1; j < entityArray.length; j++) {
+        const e1 = entityArray[i];
+        const e2 = entityArray[j];
+
+        // Check if there's a co-occurrence edge in either direction
+        const edge = graph.findEdge(e1, e2) || graph.findEdge(e2, e1);
+        if (edge) {
+          const attrs = graph.getEdgeAttributes(edge);
+          edges.push({
+            id: `${e1}<->${e2}`,
+            source: e1,
+            target: e2,
+            label: 'co-occurs',
+            weight: attrs.weight || 1.0
+          });
+        }
+      }
+    }
+
     return {
       nodes,
       edges,
@@ -273,8 +349,16 @@ export class GraphBuilder {
       });
     });
 
-    graph.forEachEdge((edgeId, _attrs, source, target) => {
-      edges.push({ id: edgeId, source, target, label: 'mentions', weight: 1.0 });
+    graph.forEachEdge((edgeId, attrs, source, target) => {
+      const edgeType = attrs.type || 'mentions';
+      const weight = attrs.weight || 1.0;
+      edges.push({
+        id: edgeId,
+        source,
+        target,
+        label: edgeType === 'co-occurs' ? 'co-occurs' : 'mentions',
+        weight
+      });
     });
 
     return {
@@ -445,4 +529,39 @@ function uniqueLower(entities: string[]): string[] {
         .filter(e => e.length > 0 && !/^[\W_]+$/.test(e)),
     ),
   ];
+}
+
+// Strip leading/trailing punctuation, hyphens, and whitespace from entity names
+function stripEntity(entity: string): string {
+  return entity.replace(/^[\s\p{P}\-]+|[\s\p{P}\-]+$/gu, '');
+}
+
+// Validate entity against filtering rules
+function isValidEntity(entity: string): boolean {
+  if (!entity || entity.length < 3) return false;
+
+  // Discard purely numeric or symbolic entities
+  if (/^[\d\s\+\-\=\(\)\/\.\,]+$/.test(entity)) return false;
+
+  // Discard single-letter tokens or punctuation-only
+  if (entity.length === 1 || /^[\W_]+$/.test(entity)) return false;
+
+  // Discard if more than 40% of characters are non-alphabetic
+  const alphaCount = (entity.match(/[a-zA-Z]/g) || []).length;
+  const alphaRatio = alphaCount / entity.length;
+  if (alphaRatio < 0.6) return false;
+
+  return true;
+}
+
+// Check if a noun phrase consists only of stop words
+function isStopWordOnly(words: string[]): boolean {
+  const stopWords = new Set([
+    'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+    'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'be',
+    'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
+    'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this',
+    'that', 'these', 'those', 'it', 'its', 'they', 'them', 'their'
+  ]);
+  return words.every(w => stopWords.has(w.toLowerCase()));
 }

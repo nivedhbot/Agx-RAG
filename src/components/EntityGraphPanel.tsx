@@ -36,9 +36,9 @@ export default function EntityGraphPanel({ activeSessionId }: { activeSessionId?
   const [highlightOn, setHighlightOn] = useState(true);
   // Per-document filter: ALL_DOCUMENTS (merged) or one document's source name.
   const [docFilter, setDocFilter] = useState<string>(ALL_DOCUMENTS);
+  const [reprocessing, setReprocessing] = useState(false);
 
-  useEffect(() => {
-    // The entity graph is session-scoped; /api/graph requires session_id.
+  const loadGraph = () => {
     if (!activeSessionId) {
       setRaw({ nodes: [], edges: [] });
       setError(null);
@@ -50,7 +50,41 @@ export default function EntityGraphPanel({ activeSessionId }: { activeSessionId?
       .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
       .then(json => setRaw(json))
       .catch(err => setError(err.message));
+  };
+
+  useEffect(() => {
+    // The entity graph is session-scoped; /api/graph requires session_id.
+    loadGraph();
   }, [activeSessionId]);
+
+  const handleReprocess = async () => {
+    if (!activeSessionId || reprocessing) return;
+
+    setReprocessing(true);
+    setError(null);
+
+    try {
+      const res = await authFetch(`/api/sessions/${encodeURIComponent(activeSessionId)}/reprocess`, {
+        method: 'POST',
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+
+      const result = await res.json();
+      console.log('[reprocess] success:', result);
+
+      // Reload the graph
+      loadGraph();
+    } catch (err: any) {
+      console.error('[reprocess] error:', err);
+      setError(err.message);
+    } finally {
+      setReprocessing(false);
+    }
+  };
 
   useEffect(() => {
     try {
@@ -177,19 +211,32 @@ export default function EntityGraphPanel({ activeSessionId }: { activeSessionId?
             </label>
           )}
         </div>
-        {hasReasoning && (
-          <button
-            type="button"
-            onClick={() => setHighlightOn(v => !v)}
-            className={`label-bold text-[10px] tracking-[0.2em] px-4 py-2 border-thick border-foreground transition-colors ${
-              highlightActive
-                ? 'bg-accent text-white'
-                : 'bg-surface text-foreground hover:bg-foreground hover:text-background'
-            }`}
-          >
-            {highlightActive ? 'HIDE_REASONING_PATH' : 'SHOW_REASONING_PATH'}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {hasReasoning && (
+            <button
+              type="button"
+              onClick={() => setHighlightOn(v => !v)}
+              className={`label-bold text-[10px] tracking-[0.2em] px-4 py-2 border-thick border-foreground transition-colors ${
+                highlightActive
+                  ? 'bg-accent text-white'
+                  : 'bg-surface text-foreground hover:bg-foreground hover:text-background'
+              }`}
+            >
+              {highlightActive ? 'HIDE_REASONING_PATH' : 'SHOW_REASONING_PATH'}
+            </button>
+          )}
+          {activeSessionId && (
+            <button
+              type="button"
+              onClick={handleReprocess}
+              disabled={reprocessing}
+              className="label-bold text-[9px] tracking-[0.2em] px-3 py-2 border-thick border-foreground bg-surface text-foreground hover:bg-foreground hover:text-background transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Rebuild graph with improved entity extraction"
+            >
+              {reprocessing ? 'REPROCESSING...' : 'REPROCESS_GRAPH'}
+            </button>
+          )}
+        </div>
       </div>
       <div className="flex flex-col lg:flex-row gap-0">
         <div className="flex-1 relative bg-muted-background grid-bg border-r-0 lg:border-r border-foreground/10 min-h-[520px]">

@@ -396,6 +396,68 @@ async function startServer() {
     res.json(graphBuilder.exportFull(sessionId));
   });
 
+  // Reprocess all chunks in a session to rebuild the knowledge graph with improved
+  // entity extraction. Clears the session graph, re-extracts entities from all
+  // existing chunks, and rebuilds co-occurrence edges.
+  app.post('/api/sessions/:session_id/reprocess', requireAuth, async (req, res) => {
+    const sessionId = req.params.session_id;
+    const userId: string | undefined = (req as any).user?.id;
+
+    if (!sessionId) {
+      return res.status(400).json({ error: 'session_id is required' });
+    }
+
+    if (!getPool()) {
+      return res.status(503).json({ error: 'Session database unavailable' });
+    }
+
+    try {
+      if (!(await userOwnsSession(sessionId, userId))) {
+        console.log(`[auth] POST /api/sessions/${sessionId}/reprocess user_id=${userId} — DENIED`);
+        return res.status(403).json({ error: 'You do not have access to this session' });
+      }
+    } catch (err: any) {
+      return res.status(500).json({ error: `Ownership check failed: ${err.message}` });
+    }
+
+    console.log(`[auth] POST /api/sessions/${sessionId}/reprocess user_id=${userId} — ALLOWED`);
+
+    try {
+      // Get all chunks for this session
+      const chunks = vectorStore.getAllChunks(sessionId);
+
+      if (chunks.length === 0) {
+        return res.json({
+          message: 'No chunks to reprocess',
+          node_count: 0,
+          edge_count: 0
+        });
+      }
+
+      // Clear the session graph
+      await graphBuilder.clearSession(sessionId);
+
+      // Rebuild the graph with improved entity extraction
+      const result = await graphBuilder.updateGraph(chunks, sessionId);
+
+      // Get the new graph stats
+      const stats = graphBuilder.stats(sessionId);
+
+      console.log(`[reprocess] session=${sessionId} chunks=${chunks.length} entities=${result.entitiesExtracted} nodes=${stats.node_count} edges=${stats.edge_count}`);
+
+      res.json({
+        message: 'Graph reprocessed successfully',
+        chunks_processed: chunks.length,
+        entities_extracted: result.entitiesExtracted,
+        node_count: stats.node_count,
+        edge_count: stats.edge_count
+      });
+    } catch (err: any) {
+      console.error('[reprocess] error:', err);
+      res.status(500).json({ error: `Reprocess failed: ${err.message}` });
+    }
+  });
+
   // Clear the GLOBAL corpus + graph. Destructive and affects every user, so it
   // is admin-only (requireAdmin runs after requireAuth, which sets the role).
   app.post('/api/clear', requireAuth, requireAdmin, async (req, res) => {
