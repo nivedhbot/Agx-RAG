@@ -55,7 +55,12 @@ export class JsonVectorBackend implements VectorBackend {
 
   async searchTopK(q: number[], topK: number, sessionId?: string) {
     const all = await this.loadAll();
-    const pool = sessionId ? all.filter(c => c.sessionId === sessionId) : all;
+    // With a sessionId, restrict to that session. Without one, restrict to the
+    // GLOBAL corpus (session_id null) only — never spill other users'
+    // session-scoped chunks into an unscoped query.
+    const pool = sessionId
+      ? all.filter(c => c.sessionId === sessionId)
+      : all.filter(c => c.sessionId == null);
     const scored = pool.map(c => ({ ...c, score: dot(q, c.embedding) }));
     scored.sort((a, b) => b.score - a.score);
     return scored.slice(0, topK);
@@ -153,7 +158,10 @@ export class PostgresVectorBackend implements VectorBackend {
   async searchTopK(q: number[], topK: number, sessionId?: string) {
     // pgvector's <#> is NEGATIVE inner product, so ORDER BY ASC gives best match.
     // We flip the sign back so callers see "higher is better".
-    const where = sessionId ? 'WHERE session_id = $3' : '';
+    // With a sessionId, restrict to that session. Without one, restrict to the
+    // GLOBAL corpus (session_id IS NULL) only — an unscoped query must never
+    // return another user's session-scoped chunks.
+    const where = sessionId ? 'WHERE session_id = $3' : 'WHERE session_id IS NULL';
     const params: any[] = sessionId ? [formatVector(q), topK, sessionId] : [formatVector(q), topK];
     const res = await this.pool.query<{ id: string; source: string; text: string; page: number; embedding: string; session_id: string | null; neg_ip: string }>(
       `SELECT id, source, text, page, session_id, embedding::text AS embedding,

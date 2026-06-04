@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { pipeline } from '@huggingface/transformers';
 import { pickBackend, type VectorBackend, type StoredChunk } from './vectorBackends.js';
 
@@ -61,7 +62,11 @@ export class VectorStore {
       const startIndex = i * embeddingSize;
       const embedding = Array.from(output.data.slice(startIndex, startIndex + embeddingSize)) as number[];
       newChunks[i].embedding = embedding;
-      newChunks[i].id = Math.random().toString(36).substring(7);
+      // Collision-free chunk id. The old Math.random().toString(36) scheme
+      // produced only ~4-6 weak characters, and any collision was silently
+      // swallowed by the backend's ON CONFLICT (id) DO NOTHING, dropping the
+      // uploaded chunk. UUIDv4 removes that data-loss path.
+      newChunks[i].id = randomUUID();
       newChunks[i].sessionId = sessionId ?? null;
       this.chunks.push(newChunks[i]);
       stored.push({
@@ -132,8 +137,13 @@ export class VectorStore {
     return removedIds;
   }
 
-  getAllChunks() {
-    return this.chunks;
+  // All chunks in the in-memory mirror. With a sessionId, returns only that
+  // session's chunks (used by /reprocess so a session's graph is rebuilt from
+  // its OWN documents, never the whole corpus). With no argument, returns every
+  // chunk — used for corpus-wide telemetry only.
+  getAllChunks(sessionId?: string) {
+    if (sessionId === undefined) return this.chunks;
+    return this.chunks.filter(c => (c.sessionId ?? null) === sessionId);
   }
 }
 
