@@ -136,9 +136,9 @@ All routes except `/api/health` and the auth register/login routes require a `Be
 | `/api/sessions` | GET | List the caller's sessions |
 | `/api/sessions` | POST | Create a session |
 | `/api/sessions/:id` | GET | Session detail: messages, documents, title (session-scoped) |
-| `/api/sessions/:id` | PATCH | Rename a session (session-scoped) |
 | `/api/sessions/:id` | DELETE | Delete a session (session-scoped) |
 | `/api/sessions/:id/messages` | POST | Append a message with pipeline metadata (session-scoped) |
+| `/api/sessions/:id/reprocess` | POST | Rebuild the session's entity graph from its current chunks with improved extraction (session-scoped) |
 | `/api/sessions/:id/documents/:docId` | DELETE | Remove one document: rebuilds the index without its chunks and prunes its single-document entities from the graph (session-scoped) |
 
 ### Core
