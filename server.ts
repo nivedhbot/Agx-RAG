@@ -75,7 +75,8 @@ async function gateSessionRead(route: string, req: any, res: any): Promise<strin
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  // Configurable via PORT env var; defaults to 3000 for local development.
+  const PORT = Number(process.env.PORT) || 3000;
 
   // Load persistent data
   await settings.load();
