@@ -1,8 +1,33 @@
-# AGX-RAG: CGoT-MARS
+<div align="center">
 
-**Contrastive Graph-of-Thought Multi-Agent Reasoning System** — a multi-agent RAG pipeline with explicit claim graphs, contradiction detection, and explainable evidence chains, wrapped in a Swiss-design UI.
+# AGX-RAG · CGoT-MARS
+
+**Contrastive Graph-of-Thought Multi-Agent Reasoning System**
+
+A multi-agent RAG pipeline with explicit claim graphs, contradiction detection,
+and explainable evidence chains, wrapped in a Swiss-design UI.
+
+</div>
 
 Documents, knowledge graphs, and chat history are scoped per user and per session behind JWT authentication. Each session has its own vector index and entity graph, so one user's uploads never appear in another's retrieval or graph.
+
+## Highlights
+
+- **Five-agent reasoning pipeline** — orchestration with a self-reflective retrieve, verify, and traverse loop.
+- **Contradiction-aware retrieval** — claims are checked pairwise by a local NLI model and conflicts are surfaced, not hidden.
+- **Explainable answers** — every response ships a claim graph, an ordered evidence chain, and a full agent trace.
+- **Hybrid F(d) re-ranking** — semantic similarity blended with an entity knowledge graph rather than cosine distance alone.
+- **Local-first verification** — embeddings and NLI run on-device, so claim extraction and contradiction checks cost no API calls.
+- **Per-user, per-session isolation** — an audited ownership gate guards every session-scoped endpoint.
+- **Graceful degradation** — no database falls back to a JSON store; no LLM key falls back to a deterministic mock.
+
+## Table of Contents
+
+- [Architecture](#architecture)
+- [Setup](#setup)
+- [API](#api)
+- [Scripts](#scripts)
+- [Notes](#notes)
 
 ## Architecture
 
