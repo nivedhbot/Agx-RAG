@@ -1,6 +1,7 @@
 {
   "name": "AGX-RAG",
   "description": "Graph-Augmented Explainable Retrieval System. A sophisticated RAG platform with architectural rigor and Swiss precision.",
+  "version": "1.0.1",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -3,6 +3,7 @@
 # AGX-RAG · CGoT-MARS
 
 **Contrastive Graph-of-Thought Multi-Agent Reasoning System**
+<!-- v1.0.1 -->
 
 A multi-agent RAG pipeline with explicit claim graphs, contradiction detection,
 and explainable evidence chains, wrapped in a Swiss-design UI.
