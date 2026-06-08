@@ -5,7 +5,7 @@
 **Contrastive Graph-of-Thought Multi-Agent Reasoning System**
 
 A multi-agent RAG pipeline with explicit claim graphs, contradiction detection,
-and explainable evidence chains, wrapped in a Swiss-design UI.
+and explainable evidence chains, wrapped in a clean minimal UI.
 
 </div>
 
